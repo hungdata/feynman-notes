@@ -1,0 +1,27 @@
+{
+  "name": "todo-list",
+  "version": "1.0.0",
+  "description": "A full-stack task manager built with React, Express and MongoDB.",
+  "private": true,
+  "scripts": {
+    "build": "npm ci --prefix backend && npm ci --prefix frontend && npm run build --prefix frontend",
+    "start": "npm start --prefix backend",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "lint": "npm run lint --prefix frontend"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hungdata/todoX.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bugs": {
+    "url": "https://github.com/hungdata/todoX/issues"
+  },
+  "homepage": "https://github.com/hungdata/todoX#readme"
+}
