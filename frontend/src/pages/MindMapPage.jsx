@@ -62,7 +62,7 @@ const MindMapWorkspace = () => {
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [outlineMode, setOutlineMode] = useState("tree");
   const [teacherOpen, setTeacherOpen] = useState(false);
-  const [teacherQuickCheck, setTeacherQuickCheck] = useState(null);
+  const [teacherQuickAction, setTeacherQuickAction] = useState(null);
   const [query, setQuery] = useState("");
   const [contextMenu, setContextMenu] = useState(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState(null);
@@ -77,8 +77,7 @@ const MindMapWorkspace = () => {
     const params = new URLSearchParams(window.location.search);
     const login = params.get("login");
     if (!login) return;
-    if (login === "success") toast.success(`Đăng nhập ${params.get("provider") || "tài khoản"} thành công.`);
-    else toast.error(params.get("message") || "Đăng nhập không thành công.");
+    if (login !== "success") toast.error(params.get("message") || "Đăng nhập không thành công.");
     window.history.replaceState({}, "", window.location.pathname);
   }, []);
 
@@ -136,7 +135,7 @@ const MindMapWorkspace = () => {
     return values;
   }, [map.allNodes]);
 
-  const checkNoteWithAi = useCallback((nodeId) => {
+  const runNoteAiAction = useCallback((nodeId, mode) => {
     const node = map.allNodes.find((item) => item.id === nodeId && item.type === "topic");
     if (!node) return;
     if (!String(node.data.label || node.data.note || "").trim()) {
@@ -148,7 +147,33 @@ const MindMapWorkspace = () => {
     setOutlineOpen(false);
     setOpenPanels([]);
     setTeacherOpen(true);
-    setTeacherQuickCheck({ nodeId, requestId: crypto.randomUUID() });
+    setTeacherQuickAction({ nodeId, mode, requestId: crypto.randomUUID() });
+  }, [map]);
+
+  const saveTeacherResponseAsNote = useCallback(({ sourceNodeId, content, conversationId, mode }) => {
+    const sourceNode = map.allNodes.find((node) => node.id === sourceNodeId && node.type === "topic");
+    if (!sourceNode || !String(content || "").trim()) return;
+
+    const teacherNodeId = map.addNode(sourceNodeId, "Teacher", {
+      select: false,
+      data: {
+        emoji: "🎓",
+        note: String(content).trim(),
+        color: "#f5f3ff",
+        textColor: "#4c1d95",
+        borderColor: "#a78bfa",
+        labels: [{ explain: "AI giải thích", debate: "AI tranh luận", verify: "AI kiểm tra" }[mode] || "AI Teacher"],
+        aiGenerated: true,
+        aiActionMode: mode || "",
+        aiSourceNodeId: sourceNodeId,
+        aiConversationId: conversationId || "",
+      },
+    });
+    if (!teacherNodeId) return;
+
+    // Persist quietly: the toolbar save state already reports any storage
+    // problem, so a successful AI check does not need another popup.
+    void map.saveNow();
   }, [map]);
 
   const displayNodes = useMemo(() => map.nodes.map((node) => {
@@ -171,10 +196,10 @@ const MindMapWorkspace = () => {
         onTransformStart: map.recordDrag,
         onResizeEnd: (size) => updateNodeById(node.id, { customSize: true }, { width: size.width, height: size.height }),
         onUpdate: (updates) => updateNodeById(node.id, updates),
-        onAiCheck: checkNoteWithAi,
+        onAiAction: runNoteAiAction,
       },
     };
-  }), [assets, checkNoteWithAi, draggingNodeId, dropTargetId, map.allNodes, map.nodes, map.recordDrag, map.selectedIds, progressByNode, updateNodeById]);
+  }), [assets, draggingNodeId, dropTargetId, map.allNodes, map.nodes, map.recordDrag, map.selectedIds, progressByNode, runNoteAiAction, updateNodeById]);
 
   const displayNodeById = useMemo(() => new Map(displayNodes.map((node) => [node.id, node])), [displayNodes]);
 
@@ -236,10 +261,7 @@ const MindMapWorkspace = () => {
         processed += 1;
       } catch (error) { toast.error(error.message); }
     }
-    if (processed > 0) {
-      const saved = await map.saveNow();
-      if (!saved) toast.warning("Ảnh đã được lưu; note sẽ tự lưu lại khi máy chủ sẵn sàng.");
-    }
+    if (processed > 0) await map.saveNow();
     return processed;
   }, [map, updateNodeById]);
 
@@ -307,10 +329,7 @@ const MindMapWorkspace = () => {
       else if (command && event.key.toLowerCase() === "d") { event.preventDefault(); map.duplicateSelected(); }
       else if (command && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        map.saveNow().then((saved) => {
-          if (saved) toast.success("Mind map đã được lưu trên máy chủ.");
-          else toast.warning("Chưa thể lưu; hệ thống sẽ tự thử lại.");
-        });
+        void map.saveNow();
       }
       else if (command && event.key.toLowerCase() === "f") { event.preventDefault(); document.querySelector(".sidebar-search input")?.focus(); }
       else if (command && event.key.toLowerCase() === "a") { event.preventDefault(); map.setSelectedIds(map.nodes.map((node) => node.id)); }
@@ -374,7 +393,6 @@ const MindMapWorkspace = () => {
       const file = event.target.files?.[0];
       if (!file) return;
       map.importDocument(validateImportedDocument(JSON.parse(await file.text())));
-      toast.success("Đã nhập mind map.");
     } catch (error) { toast.error(error.message); }
     finally { event.target.value = ""; }
   };
@@ -406,8 +424,7 @@ const MindMapWorkspace = () => {
       })
       .sort((a, b) => a.distance - b.distance)[0];
     const inferredTarget = directTarget || selectedTarget || (nearestTarget?.distance <= 700 ? nearestTarget.node : null);
-    const processed = await processImages(event.dataTransfer.files, position, inferredTarget?.id || null, "connect");
-    if (inferredTarget && processed > 0) toast.success(`Ảnh đã được nối với “${inferredTarget.data.label || inferredTarget.data.caption || "node"}”.`);
+    await processImages(event.dataTransfer.files, position, inferredTarget?.id || null, "connect");
     setIsFileDragging(false); setDropTargetId(null);
   };
 
@@ -451,9 +468,7 @@ const MindMapWorkspace = () => {
     // report a stale position on the final drag-stop event, notably for large
     // image nodes, even though the target was visibly accepted.
     const parent = map.allNodes.find((item) => item.id === dropParentIdRef.current) || getDropParent(node, event);
-    if (parent && map.reparentNode(node.id, parent.id)) {
-      toast.success(`Đã nối “${node.data.label || node.data.caption || node.data.note || "ảnh"}” vào “${parent.data.label || parent.data.caption || parent.data.note || "ảnh"}”.`);
-    } else {
+    if (!(parent && map.reparentNode(node.id, parent.id))) {
       // Dragging is only for changing hierarchy. A drop on empty canvas must
       // never leave an item between lanes or over another branch.
       map.arrange("horizontal");
@@ -520,7 +535,7 @@ const MindMapWorkspace = () => {
     <main className={`mindmap-app theme-${map.document.settings.theme} ${isFileDragging ? "file-dragging" : ""}`}>
       <MapSidebar collapsed={!sidebarOpen} documents={map.documents} activeId={map.document.id} onOpen={map.setActiveId} onCreate={map.createDocument} onDelete={map.deleteDocument} query={query} onQueryChange={setQuery} />
       <section className="workspace-shell">
-        <MapToolbar title={map.document.title} saveStatus={map.saveStatus} onTitleChange={(title) => map.setDocument((document) => ({ ...document, title }))} onAddChild={() => map.addNode(map.selectedNode?.id)} onAddSibling={map.addSibling} onAddImage={() => chooseImage(map.selectedNode?.id || null, "connect")} onAddTopicImage={() => { const id = map.addNode(map.selectedNode?.id || map.allNodes.find((node) => !node.data.parentId)?.id, ""); if (id) chooseImage(id, "attach"); }} onCrossLink={() => setCrossLinkSource((value) => value ? null : map.selectedNode?.id)} crossLinkActive={Boolean(crossLinkSource)} onUndo={map.undo} onRedo={map.redo} canUndo={map.canUndo} canRedo={map.canRedo} layout={map.document.layout} relationStyle={map.document.settings.relationStyle} onRelationStyleChange={(relationStyle) => map.setDocument((document) => ({ ...document, settings: { ...document.settings, relationStyle } }))} onArrange={(layout) => { map.arrange(layout); window.setTimeout(() => flow.fitView({ padding: 0.18, duration: 500 }), 40); }} onExportJson={exportJson} onExportPng={exportPng} onExportSvg={exportSvg} onExportPdf={exportPdf} onExportText={exportText} onExportHtml={exportHtml} onPrint={() => window.print()} onToggleSidebar={() => setSidebarOpen((value) => !value)} onToggleOutline={() => { setOutlineOpen((value) => !value); setTeacherOpen(false); setOpenPanels([]); }} onToggleTeacher={() => { setTeacherOpen((value) => !value); setOutlineOpen(false); setOpenPanels([]); }} teacherOpen={teacherOpen} onToggleInspector={() => { if (visibleOpenPanels.length) setOpenPanels([]); else openPropertyPanel(map.selectedNode?.type === "image" ? "image" : map.selectedNode ? "topic" : "map", map.selectedNode?.id || "map"); setOutlineOpen(false); setTeacherOpen(false); }} />
+        <MapToolbar title={map.document.title} saveStatus={map.saveStatus} onTitleChange={(title) => map.setDocument((document) => ({ ...document, title }))} onAddChild={() => map.addNode(map.selectedNode?.id)} onAddSibling={map.addSibling} onAddImage={() => chooseImage(map.selectedNode?.id || null, "connect")} onAddTopicImage={() => { const id = map.addNode(map.selectedNode?.id || map.allNodes.find((node) => !node.data.parentId)?.id, ""); if (id) chooseImage(id, "attach"); }} onCrossLink={() => setCrossLinkSource((value) => value ? null : map.selectedNode?.id)} crossLinkActive={Boolean(crossLinkSource)} onUndo={map.undo} onRedo={map.redo} canUndo={map.canUndo} canRedo={map.canRedo} layout={map.document.layout} relationStyle={map.document.settings.relationStyle} onRelationStyleChange={(relationStyle) => map.setDocument((document) => ({ ...document, settings: { ...document.settings, relationStyle } }))} onArrange={(layout) => { map.arrange(layout); window.setTimeout(() => flow.fitView({ padding: 0.18, duration: 500 }), 40); }} onExportJson={exportJson} onExportPng={exportPng} onExportSvg={exportSvg} onExportPdf={exportPdf} onExportText={exportText} onExportHtml={exportHtml} onPrint={() => window.print()} onToggleSidebar={() => setSidebarOpen((value) => !value)} onToggleOutline={() => { setOutlineOpen((value) => !value); setTeacherOpen(false); setTeacherQuickAction(null); setOpenPanels([]); }} onToggleTeacher={() => { if (teacherOpen) setTeacherQuickAction(null); setTeacherOpen((value) => !value); setOutlineOpen(false); setOpenPanels([]); }} teacherOpen={teacherOpen} onToggleInspector={() => { if (visibleOpenPanels.length) setOpenPanels([]); else openPropertyPanel(map.selectedNode?.type === "image" ? "image" : map.selectedNode ? "topic" : "map", map.selectedNode?.id || "map"); setOutlineOpen(false); setTeacherOpen(false); setTeacherQuickAction(null); }} />
         <div className="canvas-row">
           <div className="canvas-wrap" ref={wrapperRef} style={{ backgroundColor: map.document.settings.background }} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setIsFileDragging(true); } }} onDragOver={(event) => { event.preventDefault(); const element = event.target.closest?.(".react-flow__node"); setDropTargetId(element?.dataset?.id || null); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) { setIsFileDragging(false); setDropTargetId(null); } }} onDrop={onCanvasDrop}>
             {isFileDragging && <div className="file-drop-overlay"><ImagePlus /><strong>{dropTargetId || map.selectedNode ? "Thả để tạo ảnh và tự nối với node" : "Thả cạnh một node để tự động kết nối"}</strong><span>PNG, JPG, WEBP, GIF hoặc SVG · tối đa 12 MB</span></div>}
@@ -554,7 +569,7 @@ const MindMapWorkspace = () => {
             <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" multiple hidden onChange={onImageInput} />
           </div>
           {outlineOpen && <OutlinePanel nodes={map.allNodes} mode={outlineMode} onModeChange={setOutlineMode} onSelect={focusNode} onCheck={(id, checked) => updateNodeById(id, { checked })} onReparent={map.reparentNode} onClose={() => setOutlineOpen(false)} />}
-          {teacherOpen && <TeacherPanel key={map.document.id} documentId={map.document.id} selectedNode={map.selectedNode} quickCheckRequest={teacherQuickCheck} onClose={() => setTeacherOpen(false)} />}
+          {teacherOpen && <TeacherPanel key={map.document.id} documentId={map.document.id} selectedNode={map.selectedNode} quickActionRequest={teacherQuickAction} onQuickActionComplete={saveTeacherResponseAsNote} onClose={() => { setTeacherOpen(false); setTeacherQuickAction(null); }} />}
         </div>
       </section>
       {contextMenu && map.selectedNode?.type !== "image" && <ContextMenu {...contextMenu} isRoot={!map.selectedNode?.data.parentId} onClose={() => setContextMenu(null)} onAddChild={() => { map.addNode(map.selectedNode?.id); setContextMenu(null); }} onAddSibling={() => { map.addSibling(); setContextMenu(null); }} onDuplicate={() => { map.duplicateSelected(); setContextMenu(null); }} onFocus={() => { map.setFocusId(map.selectedNode?.id); setContextMenu(null); }} onDelete={() => { map.deleteSelected(); setContextMenu(null); }} />}

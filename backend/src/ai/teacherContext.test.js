@@ -32,6 +32,18 @@ test("node scope includes ancestors, selected node and direct children only", ()
   assert.match(context.text, /\[node:motion\].*NOTE ĐƯỢC NGƯỜI DÙNG CHỌN/);
 });
 
+test("selected-only context isolates the note being verified", () => {
+  const context = buildTeacherContext(document, {
+    scope: "node",
+    nodeId: "motion",
+    selectedOnly: true,
+  });
+
+  assert.deepEqual(context.referencedNodeIds, ["motion"]);
+  assert.match(context.text, /Chuyển động/);
+  assert.doesNotMatch(context.text, /Vật lý|Đồ thị vận tốc/);
+});
+
 test("branch scope includes every descendant and remains cycle safe", () => {
   const cyclicDocument = {
     nodes: [

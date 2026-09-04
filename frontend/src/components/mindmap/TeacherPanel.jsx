@@ -21,6 +21,7 @@ import {
 const MODE_OPTIONS = [
   { value: "socratic", label: "Socratic", hint: "Thầy hỏi để bạn tự suy luận" },
   { value: "explain", label: "Giải thích", hint: "Giải thích dễ hiểu theo Feynman" },
+  { value: "debate", label: "Tranh luận", hint: "Phản biện luận điểm và giả định" },
   { value: "quiz", label: "Kiểm tra", hint: "Hỏi và chấm từng câu" },
   { value: "review", label: "Ôn tập", hint: "Tìm phần thiếu và cần ôn" },
   { value: "verify", label: "Kiểm chứng note", hint: "Chỉ ra đúng, sai và lập luận chuẩn" },
@@ -42,9 +43,13 @@ const formatResetTime = (retryAt) => {
   return date.toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
 };
 
-const QUICK_CHECK_MESSAGE = "Hãy kiểm chứng note này: kết luận đúng hay sai, chỉ rõ chỗ sai hoặc thiếu, giải thích lập luận đúng từng bước và đề xuất phiên bản note đã sửa.";
+const QUICK_ACTION_MESSAGES = {
+  explain: "Hãy giải thích duy nhất note này theo phương pháp Feynman: làm rõ ý nghĩa, cơ chế hoặc logic từng bước, đưa một ví dụ ngắn và chỉ ra điểm dễ hiểu nhầm.",
+  debate: "Hãy tranh luận học thuật về duy nhất note này: xác định luận điểm, nêu phần hợp lý, phản biện mạnh nhất, các giả định hoặc bằng chứng còn thiếu, rồi kết luận quan điểm hợp lý hơn.",
+  verify: "Hãy kiểm chứng duy nhất note này: kết luận đúng hay sai, chỉ rõ chỗ sai hoặc thiếu, giải thích lập luận đúng từng bước và đề xuất phiên bản note đã sửa.",
+};
 
-const TeacherPanel = ({ documentId, selectedNode, quickCheckRequest, onClose }) => {
+const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickActionComplete, onClose }) => {
   const [mode, setMode] = useState("socratic");
   const [scope, setScope] = useState("node");
   const [conversationId, setConversationId] = useState("");
@@ -56,7 +61,7 @@ const TeacherPanel = ({ documentId, selectedNode, quickCheckRequest, onClose }) 
   const [error, setError] = useState("");
   const [availability, setAvailability] = useState({ available: true, retryAt: null });
   const messageEndRef = useRef(null);
-  const handledQuickCheckRef = useRef("");
+  const handledQuickActionRef = useRef("");
 
   const refreshConversations = useCallback(async () => {
     const result = await fetchTeacherConversations(documentId);
@@ -152,6 +157,14 @@ const TeacherPanel = ({ documentId, selectedNode, quickCheckRequest, onClose }) 
       setConversationId(nextConversationId);
       setMessages((current) => [...current, result.message]);
       refreshConversations().catch(() => {});
+      if (overrides.saveAsTeacherNote && result?.message?.content) {
+        onQuickActionComplete?.({
+          sourceNodeId: requestedNode.id,
+          content: result.message.content,
+          conversationId: nextConversationId,
+          mode: requestedMode,
+        });
+      }
     } catch (requestError) {
       setMessages((current) => current.filter((message) => message._id !== optimisticUser._id));
       setInput(content);
@@ -162,7 +175,7 @@ const TeacherPanel = ({ documentId, selectedNode, quickCheckRequest, onClose }) 
     } finally {
       setSending(false);
     }
-  }, [availability.available, conversationId, documentId, effectiveScope, mode, refreshConversations, selectedNode, sending]);
+  }, [availability.available, conversationId, documentId, effectiveScope, mode, onQuickActionComplete, refreshConversations, selectedNode, sending]);
 
   const submit = (event) => {
     event?.preventDefault();
@@ -170,29 +183,33 @@ const TeacherPanel = ({ documentId, selectedNode, quickCheckRequest, onClose }) 
   };
 
   useEffect(() => {
-    if (!quickCheckRequest?.requestId || loading || sending || !availability.available) return;
-    if (handledQuickCheckRef.current === quickCheckRequest.requestId) return;
-    if (!selectedNode || selectedNode.id !== quickCheckRequest.nodeId) return;
+    if (!quickActionRequest?.requestId || loading || sending || !availability.available) return;
+    if (handledQuickActionRef.current === quickActionRequest.requestId) return;
+    if (!selectedNode || selectedNode.id !== quickActionRequest.nodeId) return;
+    const requestedMode = quickActionRequest.mode;
+    const requestedMessage = QUICK_ACTION_MESSAGES[requestedMode];
+    if (!requestedMessage) return;
 
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
-      if (handledQuickCheckRef.current === quickCheckRequest.requestId) return;
-      handledQuickCheckRef.current = quickCheckRequest.requestId;
-      setMode("verify");
+      if (handledQuickActionRef.current === quickActionRequest.requestId) return;
+      handledQuickActionRef.current = quickActionRequest.requestId;
+      setMode(requestedMode);
       setScope("node");
       setConversationId("");
       setMessages([]);
       setError("");
-      void sendContent(QUICK_CHECK_MESSAGE, {
-        mode: "verify",
+      void sendContent(requestedMessage, {
+        mode: requestedMode,
         scope: "node",
         node: selectedNode,
         newConversation: true,
+        saveAsTeacherNote: true,
       });
     });
     return () => { active = false; };
-  }, [availability.available, loading, quickCheckRequest, selectedNode, sendContent, sending]);
+  }, [availability.available, loading, quickActionRequest, selectedNode, sendContent, sending]);
 
   const unavailable = !availability.available;
 

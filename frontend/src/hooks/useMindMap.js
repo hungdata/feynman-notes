@@ -142,7 +142,7 @@ export const useMindMap = (user) => {
     setSaveStatus("dirty");
   }, [activeId, commitDocuments, document, history.future]);
 
-  const addNode = useCallback((parentId, label = "") => {
+  const addNode = useCallback((parentId, label = "", options = {}) => {
     const parent = nodes.find((node) => node.id === parentId) || nodes[0];
     if (!parent) return;
     const siblingCount = nodes.filter((node) => node.data.parentId === parent.id).length;
@@ -156,11 +156,9 @@ export const useMindMap = (user) => {
       position: { x: parent.position.x + HORIZONTAL_GAP, y: parent.position.y + siblingCount * 130 },
       data: {
         label,
-        parentId: parent.id,
         color: "#ffffff",
         textColor: "#172033",
         borderColor: "#dbe4f0",
-        branchColor,
         fontSize: 15,
         fontWeight: 600,
         note: "",
@@ -176,10 +174,15 @@ export const useMindMap = (user) => {
         imageAssetId: null,
         topicImageHeight: 0,
         imagePosition: "above",
+        ...(options.data || {}),
+        // Tree ownership and branch color always come from the real parent;
+        // callers can customize content/style without creating a broken edge.
+        parentId: parent.id,
+        branchColor,
       },
     };
     updateNodes((current) => [...current, node], { reflow: true });
-    setSelectedIds([id]);
+    if (options.select !== false) setSelectedIds([id]);
     return id;
   }, [nodes, updateNodes]);
 

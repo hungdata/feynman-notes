@@ -188,6 +188,7 @@ router.post(
       const teacherContext = buildTeacherContext(mindMap.document, {
         scope: input.scope,
         nodeId: input.nodeId,
+        selectedOnly: ["verify", "explain", "debate"].includes(input.mode),
       });
 
       let conversation = null;

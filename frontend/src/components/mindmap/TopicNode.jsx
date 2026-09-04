@@ -1,6 +1,6 @@
 import { memo, useLayoutEffect, useRef, useState } from "react";
 import { Handle, Position, useUpdateNodeInternals } from "@xyflow/react";
-import { BadgeCheck, CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Circle, Link2, StickyNote } from "lucide-react";
+import { BadgeCheck, CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Circle, Lightbulb, Link2, MessagesSquare, StickyNote } from "lucide-react";
 import { resizeTextareaToContent } from "@/mindmap/textareaSizing";
 
 const TopicNode = memo(({ id, data, selected }) => {
@@ -64,25 +64,20 @@ const TopicNode = memo(({ id, data, selected }) => {
             {data.note && <StickyNote aria-label="Có ghi chú" />}
             {data.link && <Link2 aria-label="Có liên kết" />}
           </span>
-          <button
-            type="button"
-            className="node-ai-check nodrag nowheel"
-            title="Nhờ AI kiểm tra note đúng hay sai"
-            aria-label={`AI kiểm tra note ${data.label || "chưa có tiêu đề"}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              data.onAiCheck?.(id);
-            }}
-          >
-            <BadgeCheck />
-            <span>Kiểm tra</span>
-          </button>
         </div>
+        {data.aiGenerated && data.note && (
+          <div className="teacher-generated-content">{data.note}</div>
+        )}
         {(data.labels?.length > 0 || data.dueDate || data.progress !== null) && <div className="topic-extras">
           {data.labels?.map((label) => <span key={label} className="topic-label">{label}</span>)}
           {data.dueDate && <span className="topic-date"><CalendarDays />{new Date(`${data.dueDate}T00:00:00`).toLocaleDateString("vi-VN")}</span>}
           {data.progress !== null && <span className="topic-progress"><i style={{ width: `${data.progress}%` }} />{data.progress}%</span>}
         </div>}
+        <div className="node-ai-actions nodrag nowheel" aria-label="Hành động AI cho note">
+          <button type="button" title="Nhờ AI giải thích note" onClick={(event) => { event.stopPropagation(); data.onAiAction?.(id, "explain"); }}><Lightbulb /><span>Giải thích</span></button>
+          <button type="button" title="Tranh luận với AI về note" onClick={(event) => { event.stopPropagation(); data.onAiAction?.(id, "debate"); }}><MessagesSquare /><span>Tranh luận</span></button>
+          <button type="button" title="Nhờ AI kiểm tra note đúng hay sai" onClick={(event) => { event.stopPropagation(); data.onAiAction?.(id, "verify"); }}><BadgeCheck /><span>Kiểm tra</span></button>
+        </div>
       </div>
       {data.childCount > 0 && (
         <button className="node-collapse nodrag" aria-label={data.collapsed ? "Mở nhánh" : "Thu gọn nhánh"} onClick={() => data.onUpdate?.({ collapsed: !data.collapsed })}>

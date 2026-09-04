@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { VALID_TEACHER_MODES } from "../ai/teacherPrompt.js";
 
 const aiConversationSchema = new mongoose.Schema(
   {
@@ -7,7 +8,10 @@ const aiConversationSchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true, maxlength: 160 },
     mode: {
       type: String,
-      enum: ["socratic", "explain", "quiz", "review"],
+      // Keep persistence validation in sync with the API/prompt modes. A mode
+      // accepted by the route must never fail only when the conversation is
+      // written after the AI provider has already answered.
+      enum: [...VALID_TEACHER_MODES],
       default: "socratic",
     },
     scope: {

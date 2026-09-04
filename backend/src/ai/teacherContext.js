@@ -110,10 +110,13 @@ const describeNode = (node, { selected = false } = {}) => {
 
 export const buildTeacherContext = (
   document,
-  { scope = "node", nodeId, maxChars = 12_000 } = {}
+  { scope = "node", nodeId, maxChars = 12_000, selectedOnly = false } = {}
 ) => {
   const safeLimit = Math.max(500, Math.min(Number(maxChars) || 12_000, 30_000));
-  const candidates = collectContextNodes(document, { scope, nodeId });
+  const scopedCandidates = collectContextNodes(document, { scope, nodeId });
+  const candidates = selectedOnly && scope !== "map"
+    ? scopedCandidates.filter((node) => String(node.id) === String(nodeId))
+    : scopedCandidates;
   const sections = [];
   const referencedNodeIds = [];
   let remaining = safeLimit;

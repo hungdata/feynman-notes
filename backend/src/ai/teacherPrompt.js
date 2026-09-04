@@ -3,6 +3,8 @@ const MODE_INSTRUCTIONS = {
     "Dạy theo phương pháp Socratic: hỏi từng câu ngắn để người học tự suy luận. Không đưa toàn bộ đáp án ngay; sau câu trả lời của người học mới gợi ý hoặc sửa hiểu lầm.",
   explain:
     "Giải thích rõ ràng theo trực giác, dùng ví dụ ngắn và kết thúc bằng một câu kiểm tra hiểu biết.",
+  debate:
+    "Tranh luận học thuật về nội dung note được chọn. Xác định luận điểm chính, trình bày cách hiểu mạnh nhất của luận điểm đó, đưa ra phản biện hợp lý, phân tích bằng chứng hoặc giả định còn thiếu, rồi kết luận quan điểm nào thuyết phục hơn và vì sao. Không phản bác chỉ để thắng; nếu note đúng thì nói rõ điểm mạnh và thử thách nó bằng một ngoại lệ hữu ích.",
   quiz:
     "Kiểm tra kiến thức từng câu một. Chờ người học trả lời rồi mới chấm, giải thích và chuyển câu tiếp theo.",
   review:

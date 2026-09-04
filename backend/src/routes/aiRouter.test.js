@@ -38,6 +38,17 @@ test("teacher request validates scope, node and message boundaries", () => {
     }).mode,
     "verify"
   );
+
+  assert.equal(
+    normalizeTeacherRequest({
+      documentId: "map-1",
+      nodeId: "node-1",
+      message: "Hãy tranh luận về note này.",
+      mode: "debate",
+      scope: "node",
+    }).mode,
+    "debate"
+  );
 });
 
 test("conversation filters always include the authenticated owner", () => {
