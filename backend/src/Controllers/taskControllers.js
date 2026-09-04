@@ -3,6 +3,7 @@ import Task from "../models/tasks.js";
 export const getAllTasks = async (req, res) => {
   try {
     const [result] = await Task.aggregate([
+      { $match: { ownerId: req.user.id } },
       {
         $facet: {
           tasks: [{ $sort: { createdAt: -1 } }],
@@ -34,7 +35,7 @@ export const createTask = async (req, res) => {
       return res.status(400).json({ message: "Title is required" });
     }
 
-    const task = await Task.create({ title });
+    const task = await Task.create({ title, ownerId: req.user.id });
     res.status(201).json(task);
   } catch (error) {
     console.error("Error creating task:", error.message);
@@ -70,7 +71,7 @@ export const updateTask = async (req, res) => {
       return res.status(400).json({ message: "No changes provided" });
     }
 
-    const task = await Task.findByIdAndUpdate(req.params.id, updates, {
+    const task = await Task.findOneAndUpdate({ _id: req.params.id, ownerId: req.user.id }, updates, {
       new: true,
       runValidators: true,
     });
@@ -89,7 +90,7 @@ export const updateTask = async (req, res) => {
 
 export const deleteTask = async (req, res) => {
   try {
-    const deletedTask = await Task.findByIdAndDelete(req.params.id);
+    const deletedTask = await Task.findOneAndDelete({ _id: req.params.id, ownerId: req.user.id });
 
     if (!deletedTask) {
       return res.status(404).json({ message: "Task not found" });

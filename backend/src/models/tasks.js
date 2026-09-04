@@ -1,6 +1,12 @@
 import mongoose from "mongoose";
 
 const taskSchema = new mongoose.Schema({
+    ownerId: {
+        type: String,
+        required: true,
+        index: true,
+        maxlength: 255,
+    },
     title: {
         type: String,
         required: true,

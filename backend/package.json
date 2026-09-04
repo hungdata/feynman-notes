@@ -1,11 +1,12 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "API and production server for TodoX",
+  "description": "API and production server for Feynman Notes",
   "main": "src/server.js",
   "type": "module",
   "scripts": {
     "dev": "nodemon src/server.js",
+    "test": "node --test",
     "start": "node src/server.js"
   },
   "keywords": [],
@@ -18,7 +19,8 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^4.18.2",
-    "mongoose": "^9.9.4"
+    "mongoose": "^9.9.4",
+    "multer": "^2.3.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
