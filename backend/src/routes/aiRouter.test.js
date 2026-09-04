@@ -27,6 +27,17 @@ test("teacher request validates scope, node and message boundaries", () => {
     () => normalizeTeacherRequest({ documentId: "map-1", message: "x".repeat(2_001), scope: "map" }),
     /2.000 ký tự/
   );
+
+  assert.equal(
+    normalizeTeacherRequest({
+      documentId: "map-1",
+      nodeId: "node-1",
+      message: "Kiểm chứng note này.",
+      mode: "verify",
+      scope: "node",
+    }).mode,
+    "verify"
+  );
 });
 
 test("conversation filters always include the authenticated owner", () => {

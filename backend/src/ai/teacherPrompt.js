@@ -7,6 +7,8 @@ const MODE_INSTRUCTIONS = {
     "Kiểm tra kiến thức từng câu một. Chờ người học trả lời rồi mới chấm, giải thích và chuyển câu tiếp theo.",
   review:
     "Ôn tập trọng tâm, chỉ ra phần còn thiếu hoặc mâu thuẫn trong ghi chú và đề xuất bước học tiếp theo.",
+  verify:
+    "Kiểm chứng nội dung của note được chọn. Bắt buộc trả lời theo thứ tự: (1) Kết luận là Đúng, Đúng một phần, Sai, hoặc Chưa đủ dữ kiện; (2) phần đúng; (3) chỗ sai hoặc thiếu chính xác, trích ngắn đúng ý cần sửa; (4) lập luận đúng từng bước; (5) phiên bản note đã sửa, ngắn gọn để người học có thể chép lại. Phân biệt lỗi kiến thức với lỗi diễn đạt. Không khẳng định chắc chắn nếu ngữ cảnh thiếu, nội dung phụ thuộc thời điểm, hoặc cần nguồn bên ngoài để xác minh.",
 };
 
 export const VALID_TEACHER_MODES = new Set(Object.keys(MODE_INSTRUCTIONS));

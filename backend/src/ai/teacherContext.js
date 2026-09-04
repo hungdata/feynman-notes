@@ -77,10 +77,10 @@ export const collectContextNodes = (document, { scope = "node", nodeId } = {}) =
   return [...ancestors, selected, ...(childrenByParent.get(selected.id) || [])];
 };
 
-const describeNode = (node) => {
+const describeNode = (node, { selected = false } = {}) => {
   const data = node.data || {};
   const type = cleanText(node.type || data.type || "topic", 40);
-  const lines = [`[node:${cleanText(node.id, 128)}] loại=${type}`];
+  const lines = [`[node:${cleanText(node.id, 128)}] loại=${type}${selected ? " | NOTE ĐƯỢC NGƯỜI DÙNG CHỌN" : ""}`];
   const parentId = parentIdOf(node);
   if (parentId) lines.push(`node cha: ${cleanText(parentId, 128)}`);
 
@@ -120,7 +120,9 @@ export const buildTeacherContext = (
 
   for (const node of candidates) {
     const prefix = sections.length ? "\n\n" : "";
-    const section = describeNode(node);
+    const section = describeNode(node, {
+      selected: scope !== "map" && String(node.id) === String(nodeId),
+    });
     if (!section || remaining <= prefix.length) break;
 
     const available = remaining - prefix.length;

@@ -1,6 +1,6 @@
 import { memo, useLayoutEffect, useRef, useState } from "react";
 import { Handle, Position, useUpdateNodeInternals } from "@xyflow/react";
-import { CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Circle, Link2, StickyNote } from "lucide-react";
+import { BadgeCheck, CalendarDays, CheckCircle2, ChevronDown, ChevronRight, Circle, Link2, StickyNote } from "lucide-react";
 import { resizeTextareaToContent } from "@/mindmap/textareaSizing";
 
 const TopicNode = memo(({ id, data, selected }) => {
@@ -64,6 +64,19 @@ const TopicNode = memo(({ id, data, selected }) => {
             {data.note && <StickyNote aria-label="Có ghi chú" />}
             {data.link && <Link2 aria-label="Có liên kết" />}
           </span>
+          <button
+            type="button"
+            className="node-ai-check nodrag nowheel"
+            title="Nhờ AI kiểm tra note đúng hay sai"
+            aria-label={`AI kiểm tra note ${data.label || "chưa có tiêu đề"}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onAiCheck?.(id);
+            }}
+          >
+            <BadgeCheck />
+            <span>Kiểm tra</span>
+          </button>
         </div>
         {(data.labels?.length > 0 || data.dueDate || data.progress !== null) && <div className="topic-extras">
           {data.labels?.map((label) => <span key={label} className="topic-label">{label}</span>)}

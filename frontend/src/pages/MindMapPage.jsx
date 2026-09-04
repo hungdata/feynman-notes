@@ -62,6 +62,7 @@ const MindMapWorkspace = () => {
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [outlineMode, setOutlineMode] = useState("tree");
   const [teacherOpen, setTeacherOpen] = useState(false);
+  const [teacherQuickCheck, setTeacherQuickCheck] = useState(null);
   const [query, setQuery] = useState("");
   const [contextMenu, setContextMenu] = useState(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState(null);
@@ -135,6 +136,21 @@ const MindMapWorkspace = () => {
     return values;
   }, [map.allNodes]);
 
+  const checkNoteWithAi = useCallback((nodeId) => {
+    const node = map.allNodes.find((item) => item.id === nodeId && item.type === "topic");
+    if (!node) return;
+    if (!String(node.data.label || node.data.note || "").trim()) {
+      toast.info("Hãy nhập nội dung cho note trước khi yêu cầu AI kiểm tra.");
+      return;
+    }
+    map.setSelectedIds([nodeId]);
+    setSelectedEdgeId(null);
+    setOutlineOpen(false);
+    setOpenPanels([]);
+    setTeacherOpen(true);
+    setTeacherQuickCheck({ nodeId, requestId: crypto.randomUUID() });
+  }, [map]);
+
   const displayNodes = useMemo(() => map.nodes.map((node) => {
     const asset = assets[node.data.assetId];
     const automaticImageSize = node.type === "image" && !node.data.customSize
@@ -155,9 +171,10 @@ const MindMapWorkspace = () => {
         onTransformStart: map.recordDrag,
         onResizeEnd: (size) => updateNodeById(node.id, { customSize: true }, { width: size.width, height: size.height }),
         onUpdate: (updates) => updateNodeById(node.id, updates),
+        onAiCheck: checkNoteWithAi,
       },
     };
-  }), [assets, draggingNodeId, dropTargetId, map.allNodes, map.nodes, map.recordDrag, map.selectedIds, progressByNode, updateNodeById]);
+  }), [assets, checkNoteWithAi, draggingNodeId, dropTargetId, map.allNodes, map.nodes, map.recordDrag, map.selectedIds, progressByNode, updateNodeById]);
 
   const displayNodeById = useMemo(() => new Map(displayNodes.map((node) => [node.id, node])), [displayNodes]);
 
@@ -537,7 +554,7 @@ const MindMapWorkspace = () => {
             <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" multiple hidden onChange={onImageInput} />
           </div>
           {outlineOpen && <OutlinePanel nodes={map.allNodes} mode={outlineMode} onModeChange={setOutlineMode} onSelect={focusNode} onCheck={(id, checked) => updateNodeById(id, { checked })} onReparent={map.reparentNode} onClose={() => setOutlineOpen(false)} />}
-          {teacherOpen && <TeacherPanel key={map.document.id} documentId={map.document.id} selectedNode={map.selectedNode} onClose={() => setTeacherOpen(false)} />}
+          {teacherOpen && <TeacherPanel key={map.document.id} documentId={map.document.id} selectedNode={map.selectedNode} quickCheckRequest={teacherQuickCheck} onClose={() => setTeacherOpen(false)} />}
         </div>
       </section>
       {contextMenu && map.selectedNode?.type !== "image" && <ContextMenu {...contextMenu} isRoot={!map.selectedNode?.data.parentId} onClose={() => setContextMenu(null)} onAddChild={() => { map.addNode(map.selectedNode?.id); setContextMenu(null); }} onAddSibling={() => { map.addSibling(); setContextMenu(null); }} onDuplicate={() => { map.duplicateSelected(); setContextMenu(null); }} onFocus={() => { map.setFocusId(map.selectedNode?.id); setContextMenu(null); }} onDelete={() => { map.deleteSelected(); setContextMenu(null); }} />}

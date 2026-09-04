@@ -25,6 +25,11 @@ const document = {
 test("node scope includes ancestors, selected node and direct children only", () => {
   const nodes = collectContextNodes(document, { scope: "node", nodeId: "motion" });
   assert.deepEqual(nodes.map(({ id }) => id), ["root", "motion", "diagram"]);
+
+  const context = buildTeacherContext(document, { scope: "node", nodeId: "motion" });
+  const selectedMarkers = context.text.match(/NOTE ĐƯỢC NGƯỜI DÙNG CHỌN/g) || [];
+  assert.equal(selectedMarkers.length, 1);
+  assert.match(context.text, /\[node:motion\].*NOTE ĐƯỢC NGƯỜI DÙNG CHỌN/);
 });
 
 test("branch scope includes every descendant and remains cycle safe", () => {

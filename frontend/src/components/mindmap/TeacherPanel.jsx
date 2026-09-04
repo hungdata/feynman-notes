@@ -23,6 +23,7 @@ const MODE_OPTIONS = [
   { value: "explain", label: "Giải thích", hint: "Giải thích dễ hiểu theo Feynman" },
   { value: "quiz", label: "Kiểm tra", hint: "Hỏi và chấm từng câu" },
   { value: "review", label: "Ôn tập", hint: "Tìm phần thiếu và cần ôn" },
+  { value: "verify", label: "Kiểm chứng note", hint: "Chỉ ra đúng, sai và lập luận chuẩn" },
 ];
 
 const SCOPE_OPTIONS = [
@@ -41,7 +42,9 @@ const formatResetTime = (retryAt) => {
   return date.toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
 };
 
-const TeacherPanel = ({ documentId, selectedNode, onClose }) => {
+const QUICK_CHECK_MESSAGE = "Hãy kiểm chứng note này: kết luận đúng hay sai, chỉ rõ chỗ sai hoặc thiếu, giải thích lập luận đúng từng bước và đề xuất phiên bản note đã sửa.";
+
+const TeacherPanel = ({ documentId, selectedNode, quickCheckRequest, onClose }) => {
   const [mode, setMode] = useState("socratic");
   const [scope, setScope] = useState("node");
   const [conversationId, setConversationId] = useState("");
@@ -53,6 +56,7 @@ const TeacherPanel = ({ documentId, selectedNode, onClose }) => {
   const [error, setError] = useState("");
   const [availability, setAvailability] = useState({ available: true, retryAt: null });
   const messageEndRef = useRef(null);
+  const handledQuickCheckRef = useRef("");
 
   const refreshConversations = useCallback(async () => {
     const result = await fetchTeacherConversations(documentId);
@@ -116,11 +120,15 @@ const TeacherPanel = ({ documentId, selectedNode, onClose }) => {
     }
   };
 
-  const submit = async (event) => {
-    event?.preventDefault();
-    const content = input.trim();
+  const sendContent = useCallback(async (rawContent, overrides = {}) => {
+    const content = rawContent.trim();
     if (!content || sending || !availability.available) return;
-    if (effectiveScope !== "map" && !selectedNode) {
+    const requestedMode = overrides.mode || mode;
+    const requestedScope = overrides.scope || effectiveScope;
+    const requestedNode = overrides.node || selectedNode;
+    const requestedConversationId = overrides.newConversation ? "" : conversationId;
+
+    if (requestedScope !== "map" && !requestedNode) {
       setError("Hãy chọn một note hoặc ảnh trên mind map trước.");
       return;
     }
@@ -134,13 +142,13 @@ const TeacherPanel = ({ documentId, selectedNode, onClose }) => {
     try {
       const result = await sendTeacherMessage({
         documentId,
-        ...(conversationId ? { conversationId } : {}),
+        ...(requestedConversationId ? { conversationId: requestedConversationId } : {}),
         message: content,
-        mode,
-        scope: effectiveScope,
-        ...(effectiveScope !== "map" ? { nodeId: selectedNode.id } : {}),
+        mode: requestedMode,
+        scope: requestedScope,
+        ...(requestedScope !== "map" ? { nodeId: requestedNode.id } : {}),
       });
-      const nextConversationId = result?.conversation?._id || conversationId;
+      const nextConversationId = result?.conversation?._id || requestedConversationId;
       setConversationId(nextConversationId);
       setMessages((current) => [...current, result.message]);
       refreshConversations().catch(() => {});
@@ -154,7 +162,37 @@ const TeacherPanel = ({ documentId, selectedNode, onClose }) => {
     } finally {
       setSending(false);
     }
+  }, [availability.available, conversationId, documentId, effectiveScope, mode, refreshConversations, selectedNode, sending]);
+
+  const submit = (event) => {
+    event?.preventDefault();
+    void sendContent(input);
   };
+
+  useEffect(() => {
+    if (!quickCheckRequest?.requestId || loading || sending || !availability.available) return;
+    if (handledQuickCheckRef.current === quickCheckRequest.requestId) return;
+    if (!selectedNode || selectedNode.id !== quickCheckRequest.nodeId) return;
+
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      if (handledQuickCheckRef.current === quickCheckRequest.requestId) return;
+      handledQuickCheckRef.current = quickCheckRequest.requestId;
+      setMode("verify");
+      setScope("node");
+      setConversationId("");
+      setMessages([]);
+      setError("");
+      void sendContent(QUICK_CHECK_MESSAGE, {
+        mode: "verify",
+        scope: "node",
+        node: selectedNode,
+        newConversation: true,
+      });
+    });
+    return () => { active = false; };
+  }, [availability.available, loading, quickCheckRequest, selectedNode, sendContent, sending]);
 
   const unavailable = !availability.available;
 
