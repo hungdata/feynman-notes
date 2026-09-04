@@ -12,11 +12,11 @@ const MapSidebar = ({ documents, activeId, onOpen, onCreate, onDelete, query, on
     {user ? (
       <div className="sidebar-account">
         {user.picture ? <img src={user.picture} alt="Ảnh đại diện" referrerPolicy="no-referrer" /> : <span>{user.name?.slice(0, 1) || "U"}</span>}
-        <div><strong>{user.name}</strong><small>{user.email || user.provider}</small></div>
+        <div><strong>{user.name}</strong><small>{user.email || (user.isGuest ? "Chế độ dùng thử" : user.provider)}</small></div>
         <button onClick={logout} title="Đăng xuất" aria-label="Đăng xuất"><LogOut /></button>
       </div>
     ) : (
-      <Link className={`sidebar-login ${loading ? "loading" : ""}`} to="/login"><LogIn /> Đăng nhập bằng Google/Facebook</Link>
+      <Link className={`sidebar-login ${loading ? "loading" : ""}`} to="/login"><LogIn /> Đăng nhập hoặc dùng thử</Link>
     )}
     {user && <button className="coffee-support-button" type="button" onClick={() => setCoffeeOpen(true)}><Coffee /> Mời admin ly cà phê</button>}
     <button className="primary-action" onClick={() => onCreate("blank")}><FilePlus2 /> Mind map mới</button>

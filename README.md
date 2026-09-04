@@ -24,7 +24,7 @@ The Express server serves both the API and the generated React application in pr
 
 Before deploying, create a restricted MongoDB database user, rotate any credential that has previously been committed, and restrict Atlas network access as narrowly as your hosting platform allows.
 
-## Google and Facebook login
+## Google login and guest trial
 
 Copy the OAuth variables from `backend/.env.example` into your private `backend/.env` and configure:
 
@@ -32,14 +32,12 @@ Copy the OAuth variables from `backend/.env.example` into your private `backend/
 - `APP_BASE_URL`: the public backend origin, without a trailing slash.
 - `FRONTEND_URL`: the frontend origin used after login.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
-- `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET`.
 
 Register these exact callback URLs in the provider consoles:
 
 - `{APP_BASE_URL}/api/auth/google/callback`
-- `{APP_BASE_URL}/api/auth/facebook/callback`
 
-Providers without credentials remain disabled in the login screen. OAuth secrets must never use the `VITE_` prefix or be committed to Git.
+Google login remains disabled until its credentials are configured. Guest trial sessions use a signed, HttpOnly cookie and receive an isolated owner ID, so their mind maps, tasks, images and AI conversations cannot mix with another user. OAuth secrets must never use the `VITE_` prefix or be committed to Git.
 
 ## Contact
 

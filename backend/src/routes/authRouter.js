@@ -1,6 +1,6 @@
 import express from "express";
 import "../config/env.js";
-import { createOAuthState, createSessionToken, parseCookies, readSessionToken, serializeCookie, statesMatch } from "../auth/session.js";
+import { createGuestUser, createOAuthState, createSessionToken, parseCookies, readSessionToken, serializeCookie, statesMatch } from "../auth/session.js";
 
 const router = express.Router();
 const isProduction = process.env.NODE_ENV === "production";
@@ -11,7 +11,7 @@ const sessionCookie = "feynman_session";
 
 const providerConfig = {
   google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && sessionSecret),
-  facebook: Boolean(process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET && sessionSecret),
+  guest: Boolean(sessionSecret),
 };
 
 const redirectUri = (provider) => `${baseUrl}/api/auth/${provider}/callback`;
@@ -46,12 +46,33 @@ const finishLogin = (res, profile) => {
   loginResult(res, "success", profile.provider);
 };
 
+const currentUser = (req) => sessionSecret
+  ? readSessionToken(parseCookies(req.headers.cookie)[sessionCookie], sessionSecret)
+  : null;
+
 router.get("/providers", (_req, res) => res.json(providerConfig));
 
 router.get("/me", (req, res) => {
-  if (!sessionSecret) return res.json({ user: null });
-  const user = readSessionToken(parseCookies(req.headers.cookie)[sessionCookie], sessionSecret);
-  return res.json({ user });
+  return res.json({ user: currentUser(req) });
+});
+
+router.post("/guest", (req, res) => {
+  if (!providerConfig.guest) {
+    return res.status(503).json({ message: "Chế độ dùng thử chưa được cấu hình." });
+  }
+
+  const existingUser = currentUser(req);
+  if (existingUser?.provider === "guest") return res.json({ user: existingUser });
+  if (existingUser) {
+    return res.status(409).json({ message: "Hãy đăng xuất trước khi chuyển sang chế độ dùng thử." });
+  }
+
+  const user = createGuestUser();
+  appendCookie(res, serializeCookie(sessionCookie, createSessionToken(user, sessionSecret), {
+    maxAge: 7 * 24 * 60 * 60,
+    secure: isProduction,
+  }));
+  return res.status(201).json({ user });
 });
 
 router.post("/logout", (_req, res) => {
@@ -85,34 +106,6 @@ router.get("/google/callback", async (req, res) => {
   } catch (error) {
     console.error("Google OAuth error:", error.message);
     return loginResult(res, "error", "google", "Không thể xác thực tài khoản Google.");
-  }
-});
-
-router.get("/facebook", beginOAuth("facebook", "https://www.facebook.com/dialog/oauth", {
-  client_id: process.env.FACEBOOK_APP_ID || "",
-  redirect_uri: redirectUri("facebook"),
-  response_type: "code",
-  scope: "public_profile,email",
-}));
-
-router.get("/facebook/callback", async (req, res) => {
-  try {
-    if (!providerConfig.facebook || req.query.error || !req.query.code || !verifyState(req, res, "facebook")) return loginResult(res, "error", "facebook", "Đăng nhập Facebook không thành công.");
-    const tokenUrl = new URL("https://graph.facebook.com/oauth/access_token");
-    tokenUrl.search = new URLSearchParams({ client_id: process.env.FACEBOOK_APP_ID, client_secret: process.env.FACEBOOK_APP_SECRET, redirect_uri: redirectUri("facebook"), code: String(req.query.code) });
-    const tokenResponse = await fetch(tokenUrl);
-    if (!tokenResponse.ok) throw new Error("Facebook token exchange failed");
-    const tokens = await tokenResponse.json();
-    const profileUrl = new URL("https://graph.facebook.com/me");
-    profileUrl.search = new URLSearchParams({ fields: "id,name,email,picture.type(large)", access_token: tokens.access_token });
-    const profileResponse = await fetch(profileUrl);
-    if (!profileResponse.ok) throw new Error("Facebook profile request failed");
-    const profile = await profileResponse.json();
-    if (!profile.id) throw new Error("Facebook profile is missing an id");
-    return finishLogin(res, { id: `facebook:${profile.id}`, provider: "facebook", name: profile.name || "Facebook User", email: profile.email || "", picture: profile.picture?.data?.url || "" });
-  } catch (error) {
-    console.error("Facebook OAuth error:", error.message);
-    return loginResult(res, "error", "facebook", "Không thể xác thực tài khoản Facebook.");
   }
 });
 

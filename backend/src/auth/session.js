@@ -41,6 +41,15 @@ export const serializeCookie = (name, value, { maxAge, path = "/", secure = fals
 
 export const createOAuthState = () => crypto.randomBytes(32).toString("base64url");
 
+export const createGuestUser = (id = crypto.randomUUID()) => ({
+  id: `guest:${id}`,
+  provider: "guest",
+  name: "Người dùng thử",
+  email: "",
+  picture: "",
+  isGuest: true,
+});
+
 export const statesMatch = (received, stored) => {
   if (!received || !stored || received.length !== stored.length) return false;
   return crypto.timingSafeEqual(Buffer.from(received), Buffer.from(stored));
