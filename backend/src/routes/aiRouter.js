@@ -2,13 +2,19 @@ import express from "express";
 import mongoose from "mongoose";
 import { requireAuth } from "../auth/requireAuth.js";
 import { buildTeacherContext } from "../ai/teacherContext.js";
-import { buildTeacherSystemPrompt, VALID_TEACHER_MODES } from "../ai/teacherPrompt.js";
+import { buildTeacherSystemPrompt, VALID_TEACHER_MODES, WEB_RAG_MODES } from "../ai/teacherPrompt.js";
 import {
   AiProviderError,
   assertCloudflareAiAvailable,
   getCloudflareAiAvailability,
   runCloudflareModel,
 } from "../ai/providers/cloudflareProvider.js";
+import {
+  getBraveSearchAvailability,
+  searchBraveWeb,
+  WebSearchProviderError,
+} from "../ai/providers/braveSearchProvider.js";
+import { appendSourceList, buildWebContext, buildWebSearchQuery } from "../ai/webRetrieval.js";
 import AiConversation from "../models/aiConversation.js";
 import AiMessage from "../models/aiMessage.js";
 import MindMap from "../models/mindMap.js";
@@ -30,6 +36,7 @@ export const normalizeTeacherRequest = (body = {}) => {
   const message = typeof body.message === "string" ? body.message.trim() : "";
   const mode = typeof body.mode === "string" ? body.mode : "socratic";
   const scope = typeof body.scope === "string" ? body.scope : "node";
+  const webSearch = body.webSearch === true || WEB_RAG_MODES.has(mode);
 
   if (!documentId) throw new Error("Thiếu mind map cần học.");
   if (!message) throw new Error("Hãy nhập câu hỏi cho AI Teacher.");
@@ -43,7 +50,7 @@ export const normalizeTeacherRequest = (body = {}) => {
     throw new Error("Mã cuộc hội thoại không hợp lệ.");
   }
 
-  return { documentId, conversationId, nodeId, message, mode, scope };
+  return { documentId, conversationId, nodeId, message, mode, scope, webSearch };
 };
 
 export const ownedConversationFilter = (ownerId, conversationId, documentId) => ({
@@ -82,7 +89,10 @@ const configuredRateLimit = Math.max(
 router.use(requireAuth);
 
 router.get("/status", (_req, res) => {
-  res.json(getCloudflareAiAvailability());
+  res.json({
+    ...getCloudflareAiAvailability(),
+    webSearch: getBraveSearchAvailability(),
+  });
 });
 
 router.get("/conversations", async (req, res, next) => {
@@ -188,8 +198,25 @@ router.post(
       const teacherContext = buildTeacherContext(mindMap.document, {
         scope: input.scope,
         nodeId: input.nodeId,
-        selectedOnly: ["verify", "explain", "debate"].includes(input.mode),
+        selectedOnly: ["verify", "explain", "debate"].includes(input.mode.replace(/_rag$/, "")),
       });
+      let webSources = [];
+      if (input.webSearch) {
+        const query = buildWebSearchQuery({
+          document: mindMap.document,
+          nodeId: input.nodeId,
+          message: input.message,
+          mode: input.mode,
+        });
+        const webResult = await searchBraveWeb({ query });
+        webSources = webResult.sources;
+        if (!webSources.length) {
+          throw new WebSearchProviderError("Không tìm thấy nguồn web phù hợp để Teacher dùng làm bằng chứng.", {
+            status: 404,
+            code: "WEB_SEARCH_NO_RESULTS",
+          });
+        }
+      }
 
       let conversation = null;
       const isNewConversation = !input.conversationId;
@@ -219,6 +246,7 @@ router.post(
             mode: input.mode,
             scope: input.scope,
             context: teacherContext.text,
+            webContext: buildWebContext(webSources),
           }),
         },
         ...recentMessages.reverse().map(({ role, content }) => ({ role, content })),
@@ -232,6 +260,7 @@ router.post(
           code: "AI_EMPTY_RESPONSE",
         });
       }
+      const answerContent = appendSourceList(answer.content, webSources);
 
       if (!conversation) {
         conversation = await AiConversation.create({
@@ -256,7 +285,7 @@ router.post(
           ownerId: req.user.id,
           conversationId: conversation._id,
           role: "assistant",
-          content: answer.content,
+          content: answerContent,
           referencedNodeIds: teacherContext.referencedNodeIds,
           usage: answer.usage,
         },
@@ -274,6 +303,12 @@ router.post(
         model: answer.model,
       });
     } catch (error) {
+      if (error instanceof WebSearchProviderError) {
+        return res.status(error.status).json({
+          message: error.message,
+          code: error.code,
+        });
+      }
       if (error instanceof AiProviderError) {
         if (error.retryAt) {
           const retryAfterSeconds = Math.max(

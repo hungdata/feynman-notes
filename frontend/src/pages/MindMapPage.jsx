@@ -162,7 +162,7 @@ const MindMapWorkspace = () => {
         color: "#f5f3ff",
         textColor: "#4c1d95",
         borderColor: "#a78bfa",
-        labels: [{ explain: "AI giải thích", debate: "AI tranh luận", verify: "AI kiểm tra" }[mode] || "AI Teacher"],
+        labels: [{ explain: "AI giải thích", debate: "AI tranh luận", verify: "AI kiểm tra", explain_rag: "AI giải thích + RAG", debate_rag: "AI tranh luận + RAG", verify_rag: "AI kiểm tra + RAG" }[mode] || "AI Teacher"],
         aiGenerated: true,
         aiActionMode: mode || "",
         aiSourceNodeId: sourceNodeId,

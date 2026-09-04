@@ -16,6 +16,7 @@ test("teacher request validates scope, node and message boundaries", () => {
       message: "Vì sao lực gây gia tốc?",
       mode: "socratic",
       scope: "node",
+      webSearch: false,
     }
   );
 
@@ -49,6 +50,26 @@ test("teacher request validates scope, node and message boundaries", () => {
     }).mode,
     "debate"
   );
+
+  assert.equal(
+    normalizeTeacherRequest({
+      documentId: "map-1",
+      nodeId: "node-1",
+      message: "Tìm thêm nguồn web.",
+      webSearch: true,
+    }).webSearch,
+    true
+  );
+
+  const ragRequest = normalizeTeacherRequest({
+    documentId: "map-1",
+    nodeId: "node-1",
+    message: "Giải thích bằng nguồn web.",
+    mode: "explain_rag",
+    webSearch: false,
+  });
+  assert.equal(ragRequest.mode, "explain_rag");
+  assert.equal(ragRequest.webSearch, true);
 });
 
 test("conversation filters always include the authenticated owner", () => {

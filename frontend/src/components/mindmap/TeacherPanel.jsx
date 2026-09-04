@@ -4,6 +4,7 @@ import {
   ChevronDown,
   CircleAlert,
   GraduationCap,
+  Globe2,
   LoaderCircle,
   MessageCirclePlus,
   Send,
@@ -25,7 +26,12 @@ const MODE_OPTIONS = [
   { value: "quiz", label: "Kiểm tra", hint: "Hỏi và chấm từng câu" },
   { value: "review", label: "Ôn tập", hint: "Tìm phần thiếu và cần ôn" },
   { value: "verify", label: "Kiểm chứng note", hint: "Chỉ ra đúng, sai và lập luận chuẩn" },
+  { value: "explain_rag", label: "Giải thích + Web RAG", hint: "Giải thích bằng nguồn web có dẫn chứng" },
+  { value: "debate_rag", label: "Tranh luận + Web RAG", hint: "Đối chiếu nguồn ủng hộ và phản biện" },
+  { value: "verify_rag", label: "Kiểm tra + Web RAG", hint: "Xác minh note bằng nguồn web" },
 ];
+
+const RAG_MODES = new Set(["explain_rag", "debate_rag", "verify_rag"]);
 
 const SCOPE_OPTIONS = [
   { value: "node", label: "Node này" },
@@ -56,6 +62,7 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
   const [conversations, setConversations] = useState([]);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+  const [webSearch, setWebSearch] = useState(true);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -132,6 +139,14 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
     const requestedScope = overrides.scope || effectiveScope;
     const requestedNode = overrides.node || selectedNode;
     const requestedConversationId = overrides.newConversation ? "" : conversationId;
+    const requestedModeRequiresWeb = RAG_MODES.has(requestedMode);
+    const webSearchAvailable = availability.webSearch?.available === true;
+    const requestedWebSearch = (requestedModeRequiresWeb || overrides.webSearch === true || webSearch) && webSearchAvailable;
+
+    if (requestedModeRequiresWeb && !webSearchAvailable) {
+      setError("Chế độ Web RAG chưa thể dùng vì Brave Search chưa được cấu hình hoặc đã hết hạn mức.");
+      return;
+    }
 
     if (requestedScope !== "map" && !requestedNode) {
       setError("Hãy chọn một note hoặc ảnh trên mind map trước.");
@@ -151,6 +166,7 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
         message: content,
         mode: requestedMode,
         scope: requestedScope,
+        webSearch: requestedWebSearch,
         ...(requestedScope !== "map" ? { nodeId: requestedNode.id } : {}),
       });
       const nextConversationId = result?.conversation?._id || requestedConversationId;
@@ -172,10 +188,16 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
       if (requestError.code === "AI_DAILY_QUOTA_EXHAUSTED") {
         setAvailability({ available: false, code: requestError.code, retryAt: requestError.retryAt });
       }
+      if (["WEB_SEARCH_QUOTA_EXHAUSTED", "WEB_SEARCH_AUTH_FAILED", "WEB_SEARCH_NOT_CONFIGURED"].includes(requestError.code)) {
+        setAvailability((current) => ({
+          ...current,
+          webSearch: { available: false, provider: "brave", code: requestError.code },
+        }));
+      }
     } finally {
       setSending(false);
     }
-  }, [availability.available, conversationId, documentId, effectiveScope, mode, onQuickActionComplete, refreshConversations, selectedNode, sending]);
+  }, [availability.available, availability.webSearch?.available, conversationId, documentId, effectiveScope, mode, onQuickActionComplete, refreshConversations, selectedNode, sending, webSearch]);
 
   const submit = (event) => {
     event?.preventDefault();
@@ -206,12 +228,15 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
         node: selectedNode,
         newConversation: true,
         saveAsTeacherNote: true,
+        webSearch: true,
       });
     });
     return () => { active = false; };
   }, [availability.available, loading, quickActionRequest, selectedNode, sendContent, sending]);
 
   const unavailable = !availability.available;
+  const modeRequiresWeb = RAG_MODES.has(mode);
+  const ragUnavailable = modeRequiresWeb && availability.webSearch?.available !== true;
 
   return (
     <aside className="teacher-panel" aria-label="AI Teacher">
@@ -236,10 +261,23 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
           </div>
         </label>
         <div className="teacher-setting-row">
-          <label><span>Cách dạy</span><select value={mode} onChange={(event) => setMode(event.target.value)}>{MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label><span>Cách dạy</span><select value={mode} onChange={(event) => { setMode(event.target.value); if (RAG_MODES.has(event.target.value)) setWebSearch(true); }}>{MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           <label><span>Phạm vi</span><select value={effectiveScope} onChange={(event) => setScope(event.target.value)}>{SCOPE_OPTIONS.map((option) => <option key={option.value} value={option.value} disabled={option.value !== "map" && !selectedNode}>{option.label}</option>)}</select></label>
         </div>
         <div className="teacher-context"><Sparkles /><span><small>{currentMode.hint}</small><strong>{effectiveScope === "map" ? "Toàn bộ mind map" : nodeTitle(selectedNode)}</strong></span></div>
+        <label className="teacher-web-toggle">
+          <input
+            type="checkbox"
+            checked={(modeRequiresWeb || webSearch) && availability.webSearch?.available === true}
+            onChange={(event) => setWebSearch(event.target.checked)}
+            disabled={modeRequiresWeb || availability.webSearch?.available !== true}
+          />
+          <Globe2 />
+          <span>
+            <strong>Tìm thêm trên web</strong>
+            <small>{availability.webSearch?.available === true ? (modeRequiresWeb ? "Bắt buộc trong chế độ RAG" : "Brave Search · có dẫn nguồn") : "Chưa cấu hình hoặc đã hết hạn mức"}</small>
+          </span>
+        </label>
       </div>
 
       {unavailable && (
@@ -272,12 +310,12 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) submit(event);
           }}
-          placeholder={unavailable ? "Đã hết lượt miễn phí hôm nay" : "Hỏi Teacher về nội dung đang chọn…"}
-          disabled={unavailable || sending}
+          placeholder={unavailable ? "Đã hết lượt miễn phí hôm nay" : ragUnavailable ? "Web RAG hiện chưa khả dụng" : "Hỏi Teacher về nội dung đang chọn…"}
+          disabled={unavailable || ragUnavailable || sending}
           rows={2}
           aria-label="Câu hỏi cho AI Teacher"
         />
-        <button type="submit" disabled={!input.trim() || unavailable || sending} aria-label="Gửi câu hỏi">
+        <button type="submit" disabled={!input.trim() || unavailable || ragUnavailable || sending} aria-label="Gửi câu hỏi">
           {sending ? <LoaderCircle className="spin" /> : <Send />}
         </button>
         <small>{input.length}/2000 · Enter để gửi, Shift + Enter để xuống dòng</small>
