@@ -1,6 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createGuestUser, createSessionToken, parseCookies, readSessionToken, serializeCookie, statesMatch } from "./session.js";
+import {
+  createDesktopLoginGrant,
+  createDesktopOAuthContext,
+  createGuestUser,
+  createSessionToken,
+  parseCookies,
+  readDesktopLoginGrant,
+  readDesktopOAuthContext,
+  readSessionToken,
+  serializeCookie,
+  statesMatch,
+} from "./session.js";
 
 test("signed sessions round trip and reject tampering or expiry", () => {
   const token = createSessionToken({ id: "g:1", name: "Test" }, "a-very-long-test-secret", 1000);
@@ -31,4 +42,27 @@ test("guest users receive an isolated, non-guessable owner id", () => {
   assert.equal(first.isGuest, true);
   assert.match(first.id, /^guest:/);
   assert.notEqual(first.id, second.id);
+});
+
+test("desktop OAuth context is signed, short-lived, and validates loopback input", () => {
+  const input = { state: "oauth-state", port: 43123, nonce: "abcdefghijklmnopqrstuvwxyz123456" };
+  const token = createDesktopOAuthContext(input, "desktop-test-secret", 1000);
+  const context = readDesktopOAuthContext(token, "desktop-test-secret", 2000);
+
+  assert.deepEqual({ state: context.state, port: context.port, nonce: context.nonce }, input);
+  assert.equal(readDesktopOAuthContext(token, "wrong-secret", 2000), null);
+  assert.equal(readDesktopOAuthContext(token, "desktop-test-secret", 700_000), null);
+  assert.equal(readDesktopOAuthContext(createDesktopOAuthContext({ ...input, port: 80 }, "desktop-test-secret", 1000), "desktop-test-secret", 2000), null);
+});
+
+test("desktop login grants carry a verified user and expire quickly", () => {
+  const nonce = "abcdefghijklmnopqrstuvwxyz123456";
+  const user = { id: "google:123", provider: "google", name: "Test" };
+  const token = createDesktopLoginGrant(user, nonce, "desktop-test-secret", 1000);
+  const grant = readDesktopLoginGrant(token, "desktop-test-secret", 2000);
+
+  assert.equal(grant.user.id, user.id);
+  assert.equal(grant.nonce, nonce);
+  assert.ok(grant.jti);
+  assert.equal(readDesktopLoginGrant(token, "desktop-test-secret", 122_000), null);
 });

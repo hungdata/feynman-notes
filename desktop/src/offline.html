@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>Feynman Notes — Mất kết nối</title>
+    <style>
+      :root { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:#172033; background:#eef5ff; }
+      * { box-sizing:border-box; }
+      body { min-height:100vh; display:grid; place-items:center; margin:0; padding:24px; background:radial-gradient(circle at 50% 25%,#fff 0,#eef5ff 60%,#e2eaf8 100%); }
+      main { width:min(460px,100%); padding:40px; border:1px solid #d9e3f1; border-radius:24px; text-align:center; background:#ffffff; box-shadow:0 24px 60px #49648322; }
+      .logo { width:64px; height:64px; display:grid; place-items:center; margin:0 auto 22px; border-radius:18px; color:#fff; background:linear-gradient(145deg,#14b8a6,#2563eb); font-size:34px; font-weight:800; box-shadow:0 12px 25px #2563eb33; }
+      h1 { margin:0 0 10px; font-size:26px; }
+      p { margin:0 0 24px; color:#64748b; font-size:15px; line-height:1.6; }
+      button { padding:12px 20px; border:0; border-radius:12px; color:#fff; background:#2563eb; font:inherit; font-weight:700; cursor:pointer; }
+      button:hover { background:#1d4ed8; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="logo">F</div>
+      <h1>Không thể kết nối</h1>
+      <p>Hãy kiểm tra Internet. Máy chủ miễn phí cũng có thể cần ít phút để khởi động lại.</p>
+      <button id="retry" type="button">Thử lại</button>
+    </main>
+    <script>
+      const target = new URLSearchParams(window.location.search).get("appUrl");
+      document.getElementById("retry").addEventListener("click", () => {
+        if (target && /^https:\/\//.test(target)) window.location.href = target;
+      });
+    </script>
+  </body>
+</html>

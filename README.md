@@ -24,6 +24,29 @@ The Express server serves both the API and the generated React application in pr
 
 Before deploying, create a restricted MongoDB database user, rotate any credential that has previously been committed, and restrict Atlas network access as narrowly as your hosting platform allows.
 
+## macOS desktop app
+
+The Electron desktop client opens the production service in a sandboxed native window. It does not bundle backend secrets or database credentials, and its login cookie is persisted in Electron's application data directory. Google sign-in opens in the Mac's default browser and returns to the app through a short-lived localhost callback, so OAuth is never run in a blocked embedded browser.
+
+```bash
+npm install --prefix desktop
+npm run desktop:dev
+```
+
+Build an unsigned Apple Silicon installer on macOS:
+
+```bash
+npm run desktop:build:mac
+```
+
+Build for an Intel Mac instead:
+
+```bash
+npm run desktop:build:mac:intel
+```
+
+Artifacts are written to `desktop/dist`. Public distribution outside the Mac App Store requires Apple Developer signing and notarization; local unsigned builds can be opened through Finder's **Open** context menu.
+
 ## Google login and guest trial
 
 Copy the OAuth variables from `backend/.env.example` into your private `backend/.env` and configure:
