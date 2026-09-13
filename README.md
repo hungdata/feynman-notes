@@ -7,7 +7,7 @@ A visual mind-mapping and task management application built with React, Express 
 1. Copy `backend/.env.example` to `backend/.env` and set a new MongoDB connection string.
 2. Install dependencies with `npm ci --prefix backend` and `npm ci --prefix frontend`.
 3. Run `npm run dev:backend` and `npm run dev:frontend` in separate terminals.
-4. Open `http://localhost:5173`.
+4. Open (https://feynman-notes.onrender.com/).
 
 The Vite development server proxies `/api` requests to port `5051`.
 
