@@ -29,8 +29,8 @@ const LoginPage = () => {
     <main className="login-page">
       <div className="login-glow one" /><div className="login-glow two" />
       <section className="login-card">
-        <Link className="login-back" to="/"><ArrowLeft /> Quay lại mind map</Link>
-        <div className="login-logo">F</div>
+        <Link className="login-back" to="/"><ArrowLeft /> Về sân trường</Link>
+        <div className="login-logo" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" /><path d="M14.8 10.6c2.2-1.4 2.6-4.4 5.2-4.6M14.8 13.4c2.2 1.4 2.6 4.4 5.2 4.6M9.2 10.6C7 9.2 6.6 6.2 4 6M9.2 13.4C7 14.8 6.6 17.8 4 18" /></svg></div>
         <h1>Đăng nhập Feynman Notes</h1>
         <p>Đăng nhập bằng Google để lưu lâu dài, hoặc dùng thử ngay không cần tài khoản.</p>
         {user ? (

@@ -1,0 +1,121 @@
+/* ==========================================================================
+   Feynman Notes — Checklist school: the to-do list is the classroom
+   blackboard. Chalk handwriting (Patrick Hand), a wooden frame, a chalk tray
+   with the filters, and an eraser for deleting. Prefix `ck-`.
+   ========================================================================== */
+
+.ck-shell {
+  --chalk: #f4f6ee; --chalk-2: #c4d2c6; --chalk-3: #8fa596;
+  --chalk-yellow: #ffe28a; --chalk-pink: #ffb3c1; --chalk-blue: #a8dcff; --chalk-green: #b9f5c8;
+  --board: #2e4d3d; --frame: #8a5a3b; --frame-dark: #6b4429;
+  --room-wall: #f3ead9; --room-wainscot: #e3c9a8;
+  --hand: "Patrick Hand", "Comic Sans MS", var(--font);
+}
+[data-ui-theme="dark"] .ck-shell { --room-wall: #1f2331; --room-wainscot: #2a2433; --frame: #6b4a2f; --frame-dark: #4e3420; --board: #263f33; }
+
+.ck-room { min-height: calc(100vh - 58px); padding: 34px 22px 70px; background: linear-gradient(to bottom, var(--room-wall) 0 72%, #c89f6e 72% calc(72% + 6px), var(--room-wainscot) calc(72% + 6px)); }
+
+/* ---------------------------------------------------------------- board -- */
+
+.ck-board { position: relative; width: min(980px, 100%); min-height: 520px; margin: 0 auto; padding: 26px 34px 34px; border: 16px solid var(--frame); border-bottom-width: 14px; border-radius: 12px; color: var(--chalk); background:
+  radial-gradient(ellipse 340px 120px at 18% 22%, rgb(255 255 255 / 7%), transparent 70%),
+  radial-gradient(ellipse 420px 160px at 78% 70%, rgb(255 255 255 / 5%), transparent 70%),
+  radial-gradient(ellipse 260px 90px at 60% 18%, rgb(255 255 255 / 4%), transparent 70%),
+  var(--board);
+  box-shadow: inset 0 0 70px rgb(0 0 0 / 38%), inset 0 0 0 2px var(--frame-dark), 0 18px 40px rgb(40 30 20 / 28%);
+  font-family: var(--hand); font-size: 21px; }
+.ck-board :focus-visible { outline: 2px dashed var(--chalk-yellow); outline-offset: 3px; }
+
+.ck-board-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; }
+.ck-date { margin: 0; color: var(--chalk-blue); font-size: 22px; }
+.ck-tally { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--chalk-2); font-size: 21px; }
+.ck-tally svg { width: 38px; height: 38px; transform: rotate(-90deg); }
+.ck-tally circle { fill: none; stroke-width: 3.5; stroke-linecap: round; }
+.ck-tally circle:first-child { stroke: rgb(255 255 255 / 16%); stroke-dasharray: 3 5; }
+.ck-tally circle:last-child { stroke: var(--chalk-green); transition: stroke-dasharray 0.6s cubic-bezier(.2,.8,.2,1); }
+
+.ck-heading { position: relative; width: max-content; max-width: 100%; margin: 6px auto 22px !important; color: var(--chalk); font-family: var(--hand) !important; font-size: clamp(40px, 6vw, 60px) !important; font-weight: 400 !important; letter-spacing: 0.01em !important; text-align: center; text-shadow: 0 0 1px rgb(255 255 255 / 45%); }
+.ck-heading::after { content: ""; position: absolute; left: 4%; right: 4%; bottom: -2px; height: 4px; border-radius: 4px; background: var(--chalk-yellow); opacity: 0.85; transform: rotate(-0.8deg); }
+
+.ck-add { display: flex; align-items: center; gap: 12px; padding: 4px 4px 4px 2px; border-bottom: 2px dashed rgb(255 255 255 / 35%); }
+.ck-add:focus-within { border-bottom-color: var(--chalk-yellow); }
+.ck-add > svg { width: 22px; height: 22px; color: var(--chalk-yellow); }
+.ck-add input { flex: 1; min-width: 0; height: 50px; border: 0; outline: none; color: var(--chalk); background: transparent; font-family: var(--hand); font-size: 25px; caret-color: var(--chalk-yellow); }
+.ck-add input::placeholder { color: var(--chalk-3); }
+.ck-chalk-btn { display: inline-flex; align-items: center; gap: 6px; height: 42px; padding: 0 16px; border: 2px solid var(--chalk); border-radius: 12px 10px 13px 9px; color: var(--chalk); background: rgb(255 255 255 / 6%); font-family: var(--hand); font-size: 20px; transition: background 0.15s, color 0.15s; }
+.ck-chalk-btn:hover:not(:disabled) { color: var(--board); background: var(--chalk); }
+.ck-chalk-btn:disabled { opacity: 0.4; cursor: default; }
+.ck-chalk-btn svg { width: 16px; height: 16px; }
+
+.ck-range { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin: 16px 0 0; padding: 12px 14px; border: 2px dashed rgb(255 255 255 / 25%); border-radius: 12px; }
+.ck-range label { display: grid; gap: 4px; color: var(--chalk-2); font-size: 18px; }
+.ck-range input { height: 38px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 30%); border-radius: 8px; color: var(--chalk); background: rgb(0 0 0 / 18%); color-scheme: dark; font-family: var(--font); font-size: 14px; }
+.ck-chalk-link { display: inline-flex; align-items: center; gap: 4px; height: 38px; padding: 0; border: 0; color: var(--chalk-pink); background: transparent; font-family: var(--hand); font-size: 19px; }
+.ck-chalk-link svg { width: 16px; height: 16px; }
+
+.ck-columns { display: grid; gap: 8px; margin-top: 18px; }
+.ck-section h2, .ck-section-toggle { display: flex; align-items: center; gap: 6px; margin: 14px 0 6px !important; padding: 0; border: 0; color: var(--chalk-yellow); background: transparent; font-family: var(--hand) !important; font-size: 24px !important; font-weight: 400 !important; }
+.ck-section h2 span, .ck-section-toggle span { color: var(--chalk-3); font-size: 20px; }
+.ck-section.is-done-list .ck-section-toggle { color: var(--chalk-green); }
+.ck-section-toggle svg { width: 20px; height: 20px; transition: transform 0.15s; }
+.ck-section-toggle svg.is-closed { transform: rotate(-90deg); }
+
+.ck-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.ck-row { display: flex; align-items: center; gap: 14px; min-height: 58px; padding: 6px 4px; border-bottom: 1px dashed rgb(255 255 255 / 14%); }
+.ck-box { width: 30px; height: 30px; flex: none; display: grid; place-items: center; padding: 0; border: 2.5px solid var(--chalk-2); border-radius: 5px 7px 4px 6px; background: transparent; transform: rotate(-2deg); transition: border-color 0.15s, transform 0.12s; }
+.ck-box:hover { border-color: var(--chalk-yellow); }
+.ck-box:active { transform: rotate(-2deg) scale(0.9); }
+.ck-tick { width: 30px; height: 30px; margin: -4px -6px 0 0; overflow: visible; }
+.ck-tick path { fill: none; stroke: var(--chalk-green); stroke-width: 3.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 30; stroke-dashoffset: 30; transition: stroke-dashoffset 0.35s ease-out; }
+.ck-row.is-done .ck-tick path { stroke-dashoffset: 0; }
+.ck-title { position: relative; min-width: 0; flex: 1; display: grid; gap: 0; padding: 2px 0; border: 0; color: var(--chalk); background: transparent; font-family: var(--hand); text-align: left; cursor: pointer; }
+.ck-text { justify-self: start; max-width: 100%; font-size: 24px; line-height: 1.25; overflow-wrap: anywhere; text-decoration: line-through; text-decoration-color: transparent; text-decoration-thickness: 2.5px; transition: text-decoration-color 0.35s ease-out 0.15s, color 0.3s; }
+.ck-row.is-done .ck-text { color: var(--chalk-3); }
+.ck-row.is-done .ck-text { text-decoration-color: var(--chalk-pink); }
+.ck-title small { color: var(--chalk-3); font-size: 16px; }
+.ck-row.is-settling .ck-text { color: var(--chalk-green); }
+.ck-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.12s; }
+.ck-row:hover .ck-actions, .ck-row:focus-within .ck-actions { opacity: 1; }
+.ck-tool { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 8px; color: var(--chalk-2); background: transparent; }
+.ck-tool:hover { color: var(--chalk); background: rgb(255 255 255 / 10%); }
+.ck-tool.is-erase:hover { color: var(--chalk-pink); }
+.ck-tool svg { width: 18px; height: 18px; }
+.ck-edit { flex: 1; }
+.ck-edit input { width: 100%; height: 44px; padding: 0 4px; border: 0; border-bottom: 2px dashed var(--chalk-yellow); outline: none; color: var(--chalk); background: transparent; font-family: var(--hand); font-size: 24px; }
+
+.ck-note { margin: 4px 0 8px; color: var(--chalk-2); font-size: 20px; }
+.ck-empty { display: grid; justify-items: center; gap: 4px; padding: 20px 10px 24px; color: var(--chalk-2); text-align: center; }
+.ck-empty p { margin: 0; font-size: 21px; }
+.ck-doodle { width: 110px; height: 100px; }
+.ck-doodle rect, .ck-doodle path { fill: none; stroke: var(--chalk-2); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ck-doodle path:first-of-type { stroke: var(--chalk-green); }
+.ck-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 50px; color: var(--chalk-2); }
+.ck-loading svg { width: 18px; height: 18px; }
+
+/* ------------------------------------------------------------ chalk tray -- */
+
+.ck-tray { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; width: min(1010px, calc(100% + 30px)); margin: -4px auto 0; padding: 12px 70px 12px 20px; border-radius: 0 0 10px 10px; background: linear-gradient(#a06a40, #7d4f2e); box-shadow: 0 8px 14px rgb(40 30 20 / 25%); }
+.ck-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.ck-chalk-piece { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border: 0; border-radius: 7px 5px 8px 6px; color: #3b3427; background: #f4f1e6; box-shadow: 0 2px 0 rgb(0 0 0 / 25%); font-family: var(--hand); font-size: 19px; transition: transform 0.12s, background 0.12s; }
+.ck-chalk-piece span { margin-left: 3px; color: #8a8170; font-size: 16px; }
+.ck-chalk-piece:hover { transform: translateY(-2px); }
+.ck-chalk-piece.is-on { background: var(--chalk-yellow); transform: translateY(-3px) rotate(-1.5deg); }
+.ck-chalk-piece.is-on span { color: #6b5a1c; }
+.ck-chalk-piece.is-tool svg { width: 16px; height: 16px; }
+.ck-chalk-piece.is-tool.is-on { background: var(--chalk-blue); }
+.ck-eraser { position: absolute; right: 18px; top: 50%; width: 44px; height: 22px; border-radius: 4px; background: linear-gradient(#3b4a6b 0 55%, #e9e4d8 55%); box-shadow: 0 2px 0 rgb(0 0 0 / 25%); transform: translateY(-50%) rotate(4deg); }
+
+.ck-toast { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
+.ck-toast button { flex: none; padding: 4px 10px; border: 0; border-radius: 8px; color: #fff; background: #e5674d; font-weight: 700; }
+
+@media (hover: none) { .ck-actions { opacity: 1; } }
+@media (max-width: 640px) {
+  .ck-room { padding: 18px 10px 50px; }
+  .ck-board { padding: 18px 16px 22px; border-width: 10px; font-size: 19px; }
+  .ck-date { font-size: 18px; }
+  .ck-add input { font-size: 21px; }
+  .ck-chalk-btn { padding: 0 10px; font-size: 18px; }
+  .ck-text { font-size: 21px; }
+  .ck-tray { width: calc(100% + 14px); padding-right: 64px; }
+}
+@media (prefers-reduced-motion: reduce) { .ck-tick path, .ck-text, .ck-tally circle { transition: none; } }

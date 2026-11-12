@@ -25,9 +25,16 @@ export const createSessionToken = (user, secret, now = Date.now()) => {
   return createSignedToken({ ...user, exp: now + 7 * 24 * 60 * 60 * 1000 }, secret);
 };
 
-export const readSessionToken = (token, secret, now = Date.now()) => {
+/** Verified session claims, including the deadline for long-lived SSE streams. */
+export const readSessionClaims = (token, secret, now = Date.now()) => {
   const user = readSignedToken(token, secret);
-  if (!user?.exp || user.exp <= now) return null;
+  if (!Number.isFinite(user?.exp) || user.exp <= now) return null;
+  return user;
+};
+
+export const readSessionToken = (token, secret, now = Date.now()) => {
+  const user = readSessionClaims(token, secret, now);
+  if (!user) return null;
   const { exp: _exp, ...profile } = user;
   return profile;
 };

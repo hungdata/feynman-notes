@@ -1,0 +1,64 @@
+import express from "express";
+import { parseCookies, readSessionClaims } from "../auth/session.js";
+import { SESSION_COOKIE } from "../auth/requireAuth.js";
+import { getStore } from "../storage/index.js";
+import { CampusError, validateProfile } from "../campus/profiles.js";
+
+const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res)).catch(next);
+
+export const createCampusRouter = (runtime) => {
+  const router = express.Router();
+  const profileLimits = new Map();
+  router.use((req, res, next) => {
+    let user;
+    try { user = readSessionClaims(parseCookies(req.headers.cookie)[SESSION_COOKIE], process.env.AUTH_SESSION_SECRET || ""); } catch { /* malformed cookie */ }
+    if (!user?.id || !["google", "guest"].includes(user.provider)) {
+      return res.status(401).json({ message: "Đăng nhập Google hoặc vào bằng tài khoản khách để chơi online.", code: "CAMPUS_AUTH_REQUIRED" });
+    }
+    req.campusUser = user;
+    res.setHeader("Cache-Control", "no-store");
+    next();
+  });
+  router.get("/profile", asyncRoute(async (req, res) => {
+    res.json({ profile: await getStore().campusProfiles.get(req.campusUser.id) });
+  }));
+  router.put("/profile", asyncRoute(async (req, res) => {
+    const timestamp = Date.now();
+    for (const [key, state] of profileLimits) if (timestamp - state.start >= 60_000) profileLimits.delete(key);
+    const state = profileLimits.get(req.campusUser.id) || { start: timestamp, count: 0 };
+    state.count += 1;
+    profileLimits.set(req.campusUser.id, state);
+    if (state.count > 20) throw new CampusError("Đổi tên quá nhiều lần. Hãy chờ một phút.", 429, "CAMPUS_RATE_LIMIT");
+    const profile = await getStore().campusProfiles.save(req.campusUser.id, validateProfile(req.body));
+    runtime.updateProfile(profile);
+    res.json({ profile });
+  }));
+  router.use((req, _res, next) => {
+    getStore().campusProfiles.get(req.campusUser.id).then((profile) => {
+      if (!profile) throw new CampusError("Tạo nhân vật trước khi vào sân trường.", 409, "CHARACTER_REQUIRED");
+      req.campusProfile = profile;
+      next();
+    }).catch(next);
+  });
+  router.get("/events", (req, res, next) => {
+    try {
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      req.socket.setTimeout(0);
+      runtime.connect(req.campusProfile, res, req.campusUser.exp);
+    } catch (error) { next(error); }
+  });
+  router.post("/input", (req, res, next) => {
+    try { res.json({ ok: true, player: runtime.input(req.campusProfile.id, req.body) }); } catch (error) { next(error); }
+  });
+  router.post("/action", (req, res, next) => {
+    try { res.json(runtime.action(req.campusProfile.id, req.body)); } catch (error) { next(error); }
+  });
+  router.use((error, _req, res, next) => {
+    if (!(error instanceof CampusError)) return next(error);
+    return res.status(error.status).type("json").json({ message: error.message, code: error.code });
+  });
+  return router;
+};

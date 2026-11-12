@@ -1,30 +1,91 @@
-import { ExternalLink, EyeOff, Focus, ImagePlus, Palette, Trash2, X } from "lucide-react";
-import { NODE_COLORS } from "@/mindmap/constants";
+import {
+  AlignCenter, AlignLeft, AlignRight, Bold, ClipboardPaste, Copy, Italic, Minus, Paintbrush, Plus, RotateCcw, SquareDashed,
+} from "lucide-react";
+import { BRANCH_LAYOUTS, LAYOUT_LABELS, RELATION_STYLE_LABELS, RELATION_STYLES, TOPIC_SHAPES } from "@/mindmap/constants";
+import { getStyleSheet } from "@/mindmap/styles";
+import { ColorField, Field, Section, Segmented, Toggle } from "./ui";
 
-const Inspector = ({ node, onUpdate, onDelete, onFocus, onHide, onAddImage, onClose }) => {
-  if (!node) return null;
-  const data = node.data;
+const BRANCH_LAYOUT_LABELS = { inherit: "Theo mind map", horizontal: "Ngang", topDown: "Từ trên xuống", list: "Danh sách", freeForm: "Tự do" };
+
+const ShapeIcon = ({ shape }) => <i className={`shape-swatch shape-${shape || "auto"}`} aria-hidden="true" />;
+
+/** Element style for one or more selected topics (SimpleMind "Element style"). */
+const Inspector = ({ map, nodes, edit, onCopyStyle, onPasteStyle }) => {
+  const ids = nodes.map((node) => node.id);
+  const [first] = nodes;
+  const data = first.data;
+  const view = data.view || {};
+  const set = (updates) => edit(ids, updates);
+  const sheet = getStyleSheet(map.document.settings.styleSheet);
+  const fontSize = Number(data.fontSize) || view.fontSize || 15;
+
   return (
-    <aside className="inspector">
-      <div className="inspector-heading"><div><span>THUỘC TÍNH</span><strong>Topic</strong></div><button onClick={onClose} aria-label="Đóng bảng thuộc tính"><X /></button></div>
-      <label>Tiêu đề<textarea rows="3" value={data.label} onChange={(event) => onUpdate({ label: event.target.value })} /></label>
-      <div className="field-row">
-        <label>Emoji<input value={data.emoji || ""} maxLength="4" placeholder="✨" onChange={(event) => onUpdate({ emoji: event.target.value })} /></label>
-        <label>Cỡ chữ<input type="number" min="11" max="30" value={data.fontSize} onChange={(event) => onUpdate({ fontSize: Number(event.target.value) })} /></label>
+    <>
+      {nodes.length > 1 && <p className="panel-hint is-info">Đang chỉnh {nodes.length} topic cùng lúc.</p>}
+      <Section title="Hình dạng">
+        <div className="shape-grid" role="radiogroup" aria-label="Hình dạng topic">
+          {TOPIC_SHAPES.map((shape) => (
+            <button key={shape.id || "auto"} type="button" role="radio" aria-checked={(data.shape || "") === shape.id} className={(data.shape || "") === shape.id ? "is-active" : ""} title={shape.label} onClick={() => set({ shape: shape.id })}>
+              <ShapeIcon shape={shape.id} /><span>{shape.label}</span>
+            </button>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Màu">
+        <Field label="Nền"><ColorField value={data.color} onChange={(color) => set({ color })} /></Field>
+        <Field label="Viền"><ColorField compact value={data.borderColor} onChange={(borderColor) => set({ borderColor })} /></Field>
+        <Field label="Độ dày viền" hint={data.borderWidth === null || data.borderWidth === undefined || data.borderWidth === "" ? "tự động" : `${data.borderWidth}px`}>
+          <input type="range" min="0" max="6" step="0.5" value={data.borderWidth ?? view.borderWidth ?? 2} onChange={(event) => set({ borderWidth: Number(event.target.value) })} />
+        </Field>
+        <Field label="Màu nhánh" hint="đổi cả nhánh con"><ColorField compact value={data.branchColor} palette={sheet.palette.concat(["#64748b", "#111827"])} onChange={(branchColor) => set({ branchColor })} /></Field>
+      </Section>
+
+      <Section title="Chữ">
+        <div className="text-style-row">
+          <div className="stepper" aria-label="Cỡ chữ">
+            <button type="button" aria-label="Giảm cỡ chữ" onClick={() => set({ fontSize: Math.max(10, fontSize - 1) })}><Minus /></button>
+            <span>{fontSize}</span>
+            <button type="button" aria-label="Tăng cỡ chữ" onClick={() => set({ fontSize: Math.min(48, fontSize + 1) })}><Plus /></button>
+          </div>
+          <button type="button" className={`icon-btn ${(Number(data.fontWeight) || view.fontWeight) >= 700 ? "is-active" : ""}`} title="Đậm" aria-label="Đậm" onClick={() => set({ fontWeight: (Number(data.fontWeight) || view.fontWeight) >= 700 ? 500 : 700 })}><Bold /></button>
+          <button type="button" className={`icon-btn ${data.fontStyle === "italic" ? "is-active" : ""}`} title="Nghiêng" aria-label="Nghiêng" onClick={() => set({ fontStyle: data.fontStyle === "italic" ? "" : "italic" })}><Italic /></button>
+          <Segmented value={data.textAlign || ""} ariaLabel="Căn chữ" onChange={(textAlign) => set({ textAlign })} options={[
+            { value: "left", icon: AlignLeft, iconOnly: true, title: "Căn trái" },
+            { value: "", icon: AlignCenter, iconOnly: true, title: "Căn giữa" },
+            { value: "right", icon: AlignRight, iconOnly: true, title: "Căn phải" },
+          ]} />
+        </div>
+        <Field label="Màu chữ"><ColorField compact value={data.textColor} onChange={(textColor) => set({ textColor })} /></Field>
+        <Field label="Độ rộng tối đa" hint={`${Number(data.maxWidth) || view.maxWidth || 260}px`}>
+          <input type="range" min="120" max="640" step="10" value={Number(data.maxWidth) || view.maxWidth || 260} onChange={(event) => set({ maxWidth: Number(event.target.value) })} />
+        </Field>
+      </Section>
+
+      <Section title="Nhánh">
+        {first.type === "topic" && data.parentId && (
+          <Field label="Đường nối tới topic cha">
+            <select value={data.relationStyle || "inherit"} onChange={(event) => set({ relationStyle: event.target.value })}>
+              <option value="inherit">Theo mind map</option>
+              {RELATION_STYLES.map((style) => <option key={style} value={style}>{RELATION_STYLE_LABELS[style]}</option>)}
+            </select>
+          </Field>
+        )}
+        <Field label="Bố cục các topic con">
+          <select value={data.layout || "inherit"} onChange={(event) => set({ layout: event.target.value })}>
+            {BRANCH_LAYOUTS.map((layout) => <option key={layout} value={layout}>{BRANCH_LAYOUT_LABELS[layout] || LAYOUT_LABELS[layout]}</option>)}
+          </select>
+        </Field>
+        <Toggle label="Viền bao nhánh" description="Vẽ khung nhóm quanh cả nhánh" checked={data.branchBorder} onChange={(branchBorder) => set({ branchBorder })} />
+      </Section>
+
+      <div className="button-row">
+        <button type="button" className="btn-ghost" onClick={onCopyStyle}><Copy /> Sao chép kiểu</button>
+        <button type="button" className="btn-ghost" onClick={onPasteStyle}><ClipboardPaste /> Dán kiểu</button>
+        <button type="button" className="btn-ghost" onClick={() => map.resetStyle(ids)}><RotateCcw /> Mặc định</button>
       </div>
-      <label>Kiểu chữ<select value={data.fontWeight} onChange={(event) => onUpdate({ fontWeight: Number(event.target.value) })}><option value="400">Regular</option><option value="600">Semi Bold</option><option value="700">Bold</option></select></label>
-      <div className="field-row"><label>Connection<select value={data.relationStyle || "inherit"} onChange={(event) => onUpdate({ relationStyle: event.target.value })}><option value="inherit">Theo mind map</option><option value="curved">Curved</option><option value="straight">Straight</option><option value="rounded">Rounded</option><option value="angled">Angled</option></select></label><label>Layout nhánh<select value={data.layout || "inherit"} onChange={(event) => onUpdate({ layout: event.target.value })}><option value="inherit">Kế thừa</option><option value="freeForm">Free Form</option><option value="horizontal">Horizontal</option><option value="vertical">Vertical</option><option value="radial">Radial</option><option value="list">List</option></select></label></div>
-      <label><span className="label-with-icon"><Palette /> Màu nền</span><div className="color-swatches">{NODE_COLORS.map((color) => <button key={color} aria-label={`Màu ${color}`} className={data.color === color ? "active" : ""} style={{ background: color }} onClick={() => onUpdate({ color })} />)}<input type="color" value={data.color} onChange={(event) => onUpdate({ color: event.target.value })} /></div></label>
-      <div className="field-row"><label>Màu chữ<input type="color" value={data.textColor} onChange={(event) => onUpdate({ textColor: event.target.value })} /></label><label>Màu nhánh<input type="color" value={data.branchColor} onChange={(event) => onUpdate({ branchColor: event.target.value, borderColor: event.target.value })} /></label></div>
-      <label>Ghi chú<textarea rows="5" value={data.note || ""} placeholder="Thêm chi tiết, ý tưởng hoặc việc cần làm..." onChange={(event) => onUpdate({ note: event.target.value })} /></label>
-      <label>Labels<input value={(data.labels || []).join(", ")} placeholder="Research, Important, AI" onChange={(event) => onUpdate({ labels: event.target.value.split(",").map((label) => label.trim()).filter(Boolean) })} /></label>
-      <label>Ngày đến hạn<input type="date" value={data.dueDate || ""} onChange={(event) => onUpdate({ dueDate: event.target.value })} /></label>
-      <label>Liên kết<div className="input-with-action"><input type="url" value={data.link || ""} placeholder="https://..." onChange={(event) => onUpdate({ link: event.target.value })} />{data.link && <a href={data.link} target="_blank" rel="noreferrer" aria-label="Mở liên kết"><ExternalLink /></a>}</div></label>
-      <label className="checkbox-field"><input type="checkbox" checked={data.checked} onChange={(event) => onUpdate({ checked: event.target.checked })} /><span><strong>Đã hiểu</strong><small>Tích để đánh dấu nội dung đã hiểu và gạch ngang.</small></span></label>
-      <button className="wide-secondary" onClick={onAddImage}><ImagePlus /> {data.imageAssetId ? "Thay ảnh topic" : "Gắn ảnh vào topic"}</button>
-      {data.imageAssetId && <button className="wide-danger" onClick={() => onUpdate({ imageAssetId: null })}><Trash2 /> Gỡ ảnh khỏi topic</button>}
-      <div className="inspector-actions"><button onClick={onFocus}><Focus /> Focus nhánh</button><button onClick={onHide}><EyeOff /> Ẩn nhánh</button>{data.parentId && <button className="danger" onClick={onDelete}><Trash2 /> Xóa topic</button>}</div>
-    </aside>
+      <p className="panel-hint"><Paintbrush /> Ô “A” = để style sheet tự chọn màu. <SquareDashed /> Kiểu riêng được giữ khi đổi style sheet.</p>
+    </>
   );
 };
 

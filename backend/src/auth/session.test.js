@@ -8,6 +8,7 @@ import {
   parseCookies,
   readDesktopLoginGrant,
   readDesktopOAuthContext,
+  readSessionClaims,
   readSessionToken,
   serializeCookie,
   statesMatch,
@@ -18,6 +19,9 @@ test("signed sessions round trip and reject tampering or expiry", () => {
   assert.equal(readSessionToken(token, "a-very-long-test-secret", 2000).id, "g:1");
   assert.equal(readSessionToken(`${token}x`, "a-very-long-test-secret", 2000), null);
   assert.equal(readSessionToken(token, "a-very-long-test-secret", 700_000_000), null);
+  assert.equal(readSessionClaims(token, "a-very-long-test-secret", 2000).exp, 1000 + 7 * 24 * 60 * 60 * 1000);
+  assert.equal(readSessionClaims(`${token}x`, "a-very-long-test-secret", 2000), null);
+  assert.equal("exp" in readSessionToken(token, "a-very-long-test-secret", 2000), false);
 });
 
 test("cookies are HttpOnly, SameSite protected, and parse safely", () => {

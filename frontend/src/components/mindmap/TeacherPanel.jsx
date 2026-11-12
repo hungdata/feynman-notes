@@ -55,7 +55,7 @@ const QUICK_ACTION_MESSAGES = {
   verify: "Hãy kiểm chứng duy nhất note này: kết luận đúng hay sai, chỉ rõ chỗ sai hoặc thiếu, giải thích lập luận đúng từng bước và đề xuất phiên bản note đã sửa.",
 };
 
-const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickActionComplete, onClose }) => {
+const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickActionComplete, onClose, embedded = false }) => {
   const [mode, setMode] = useState("socratic");
   const [scope, setScope] = useState("node");
   const [conversationId, setConversationId] = useState("");
@@ -134,7 +134,7 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
 
   const sendContent = useCallback(async (rawContent, overrides = {}) => {
     const content = rawContent.trim();
-    if (!content || sending || !availability.available) return;
+    if (!content || sending || !availability.available || availability.configured === false) return;
     const requestedMode = overrides.mode || mode;
     const requestedScope = overrides.scope || effectiveScope;
     const requestedNode = overrides.node || selectedNode;
@@ -197,7 +197,7 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
     } finally {
       setSending(false);
     }
-  }, [availability.available, availability.webSearch?.available, conversationId, documentId, effectiveScope, mode, onQuickActionComplete, refreshConversations, selectedNode, sending, webSearch]);
+  }, [availability.available, availability.configured, availability.webSearch?.available, conversationId, documentId, effectiveScope, mode, onQuickActionComplete, refreshConversations, selectedNode, sending, webSearch]);
 
   const submit = (event) => {
     event?.preventDefault();
@@ -205,7 +205,7 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
   };
 
   useEffect(() => {
-    if (!quickActionRequest?.requestId || loading || sending || !availability.available) return;
+    if (!quickActionRequest?.requestId || loading || sending || !availability.available || availability.configured === false) return;
     if (handledQuickActionRef.current === quickActionRequest.requestId) return;
     if (!selectedNode || selectedNode.id !== quickActionRequest.nodeId) return;
     const requestedMode = quickActionRequest.mode;
@@ -232,14 +232,15 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
       });
     });
     return () => { active = false; };
-  }, [availability.available, loading, quickActionRequest, selectedNode, sendContent, sending]);
+  }, [availability.available, availability.configured, loading, quickActionRequest, selectedNode, sendContent, sending]);
 
-  const unavailable = !availability.available;
+  const notConfigured = availability.configured === false;
+  const unavailable = !availability.available || notConfigured;
   const modeRequiresWeb = RAG_MODES.has(mode);
   const ragUnavailable = modeRequiresWeb && availability.webSearch?.available !== true;
 
   return (
-    <aside className="teacher-panel" aria-label="AI Teacher">
+    <aside className={`teacher-panel ${embedded ? "is-embedded" : ""}`} aria-label="AI Teacher">
       <header className="teacher-header">
         <div className="teacher-avatar"><GraduationCap /></div>
         <div><span>FEYNMAN AI</span><strong>Teacher</strong></div>
@@ -280,7 +281,13 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
         </label>
       </div>
 
-      {unavailable && (
+      {notConfigured && (
+        <div className="teacher-quota is-setup" role="note">
+          <CircleAlert />
+          <div><strong>AI Teacher chưa được bật trên server</strong><span>Thêm CLOUDFLARE_ACCOUNT_ID và CLOUDFLARE_AI_TOKEN vào backend/.env rồi khởi động lại backend.</span></div>
+        </div>
+      )}
+      {unavailable && !notConfigured && (
         <div className="teacher-quota" role="alert">
           <CircleAlert />
           <div><strong>Đã hết lượt miễn phí hôm nay</strong><span>AI Teacher sẽ mở lại lúc {formatResetTime(availability.retryAt)}.</span></div>
@@ -310,7 +317,7 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) submit(event);
           }}
-          placeholder={unavailable ? "Đã hết lượt miễn phí hôm nay" : ragUnavailable ? "Web RAG hiện chưa khả dụng" : "Hỏi Teacher về nội dung đang chọn…"}
+          placeholder={notConfigured ? "AI Teacher chưa được cấu hình" : unavailable ? "Đã hết lượt miễn phí hôm nay" : ragUnavailable ? "Web RAG hiện chưa khả dụng" : "Hỏi Teacher về nội dung đang chọn…"}
           disabled={unavailable || ragUnavailable || sending}
           rows={2}
           aria-label="Câu hỏi cho AI Teacher"

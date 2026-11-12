@@ -1,5 +1,4 @@
 import express from "express";
-import mongoose from "mongoose";
 import { requireAuth } from "../auth/requireAuth.js";
 import { buildTeacherContext } from "../ai/teacherContext.js";
 import { buildTeacherSystemPrompt, VALID_TEACHER_MODES, WEB_RAG_MODES } from "../ai/teacherPrompt.js";
@@ -7,22 +6,24 @@ import {
   AiProviderError,
   assertCloudflareAiAvailable,
   getCloudflareAiAvailability,
-  runCloudflareModel,
 } from "../ai/providers/cloudflareProvider.js";
+import { AiRequestError, describeAi, isAiConfigured, runTeacherModel } from "../ai/providers/index.js";
 import {
   getBraveSearchAvailability,
   searchBraveWeb,
   WebSearchProviderError,
 } from "../ai/providers/braveSearchProvider.js";
 import { appendSourceList, buildWebContext, buildWebSearchQuery } from "../ai/webRetrieval.js";
-import AiConversation from "../models/aiConversation.js";
-import AiMessage from "../models/aiMessage.js";
-import MindMap from "../models/mindMap.js";
+import { getStore } from "../storage/index.js";
 
 const router = express.Router();
 const VALID_SCOPES = new Set(["node", "branch", "map"]);
 const MAX_USER_MESSAGE_LENGTH = 2_000;
 const HISTORY_LIMIT = 12;
+
+// MongoDB ObjectIds (hosted) or UUIDs (local file storage).
+const isValidConversationId = (value) => /^[0-9a-f]{24}$/i.test(value)
+  || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const normalizeOptionalId = (value) => {
   if (value == null || value === "") return null;
@@ -46,7 +47,7 @@ export const normalizeTeacherRequest = (body = {}) => {
   if (!VALID_TEACHER_MODES.has(mode)) throw new Error("Chế độ AI Teacher không hợp lệ.");
   if (!VALID_SCOPES.has(scope)) throw new Error("Phạm vi AI Teacher không hợp lệ.");
   if (scope !== "map" && !nodeId) throw new Error("Hãy chọn một node để AI Teacher phân tích.");
-  if (conversationId && !mongoose.isValidObjectId(conversationId)) {
+  if (conversationId && !isValidConversationId(conversationId)) {
     throw new Error("Mã cuộc hội thoại không hợp lệ.");
   }
 
@@ -91,6 +92,8 @@ router.use(requireAuth);
 router.get("/status", (_req, res) => {
   res.json({
     ...getCloudflareAiAvailability(),
+    configured: isAiConfigured(),
+    model: describeAi().model,
     webSearch: getBraveSearchAvailability(),
   });
 });
@@ -100,10 +103,7 @@ router.get("/conversations", async (req, res, next) => {
     const documentId = normalizeOptionalId(req.query.documentId);
     if (!documentId) return res.status(400).json({ message: "Thiếu mind map cần tải hội thoại." });
 
-    const conversations = await AiConversation.find({ ownerId: req.user.id, documentId })
-      .sort({ lastMessageAt: -1 })
-      .limit(50)
-      .lean();
+    const conversations = await getStore().ai.listConversations(req.user.id, documentId, 50);
     res.json({ conversations });
   } catch (error) {
     next(error);
@@ -113,22 +113,15 @@ router.get("/conversations", async (req, res, next) => {
 router.get("/conversations/:conversationId/messages", async (req, res, next) => {
   try {
     const conversationId = String(req.params.conversationId);
-    if (!mongoose.isValidObjectId(conversationId)) {
+    if (!isValidConversationId(conversationId)) {
       return res.status(400).json({ message: "Mã cuộc hội thoại không hợp lệ." });
     }
 
-    const conversation = await AiConversation.findOne(
-      ownedConversationFilter(req.user.id, conversationId)
-    ).lean();
+    const store = getStore();
+    const conversation = await store.ai.getConversation(req.user.id, conversationId);
     if (!conversation) return res.status(404).json({ message: "Không tìm thấy cuộc hội thoại." });
 
-    const messages = await AiMessage.find({
-      ownerId: req.user.id,
-      conversationId: conversation._id,
-    })
-      .sort({ createdAt: 1 })
-      .limit(200)
-      .lean();
+    const messages = await store.ai.listMessages(req.user.id, conversation._id, { limit: 200 });
 
     res.json({ conversation, messages });
   } catch (error) {
@@ -139,16 +132,12 @@ router.get("/conversations/:conversationId/messages", async (req, res, next) => 
 router.delete("/conversations/:conversationId", async (req, res, next) => {
   try {
     const conversationId = String(req.params.conversationId);
-    if (!mongoose.isValidObjectId(conversationId)) {
+    if (!isValidConversationId(conversationId)) {
       return res.status(400).json({ message: "Mã cuộc hội thoại không hợp lệ." });
     }
 
-    const conversation = await AiConversation.findOneAndDelete(
-      ownedConversationFilter(req.user.id, conversationId)
-    ).lean();
+    const conversation = await getStore().ai.deleteConversation(req.user.id, conversationId);
     if (!conversation) return res.status(404).json({ message: "Không tìm thấy cuộc hội thoại." });
-
-    await AiMessage.deleteMany({ ownerId: req.user.id, conversationId: conversation._id });
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -187,10 +176,8 @@ router.post(
     }
 
     try {
-      const mindMap = await MindMap.findOne({
-        ownerId: req.user.id,
-        documentId: input.documentId,
-      }).lean();
+      const store = getStore();
+      const mindMap = await store.mindMaps.get(req.user.id, input.documentId);
       if (!mindMap) return res.status(404).json({ message: "Không tìm thấy mind map." });
 
       // Validate and build context before creating any database records so an
@@ -221,22 +208,14 @@ router.post(
       let conversation = null;
       const isNewConversation = !input.conversationId;
       if (input.conversationId) {
-        conversation = await AiConversation.findOne(
-          ownedConversationFilter(req.user.id, input.conversationId, input.documentId)
-        );
+        conversation = await store.ai.getConversation(req.user.id, input.conversationId, input.documentId);
         if (!conversation) {
           return res.status(404).json({ message: "Không tìm thấy cuộc hội thoại." });
         }
       }
 
       const recentMessages = conversation
-        ? await AiMessage.find({
-            ownerId: req.user.id,
-            conversationId: conversation._id,
-          })
-            .sort({ createdAt: -1 })
-            .limit(HISTORY_LIMIT)
-            .lean()
+        ? await store.ai.listMessages(req.user.id, conversation._id, { limit: HISTORY_LIMIT, newestFirst: true })
         : [];
 
       const providerMessages = [
@@ -253,7 +232,7 @@ router.post(
         { role: "user", content: input.message },
       ];
 
-      const answer = await runCloudflareModel({ messages: providerMessages });
+      const answer = await runTeacherModel({ messages: providerMessages });
       if (!answer.content) {
         throw new AiProviderError("AI Teacher không tạo được câu trả lời.", {
           status: 502,
@@ -263,7 +242,7 @@ router.post(
       const answerContent = appendSourceList(answer.content, webSources);
 
       if (!conversation) {
-        conversation = await AiConversation.create({
+        conversation = await store.ai.createConversation({
           ownerId: req.user.id,
           documentId: input.documentId,
           title: input.message.slice(0, 80),
@@ -273,17 +252,13 @@ router.post(
         });
       }
 
-      const [, assistantMessage] = await AiMessage.insertMany([
+      const [, assistantMessage] = await store.ai.addMessages(req.user.id, conversation._id, [
         {
-          ownerId: req.user.id,
-          conversationId: conversation._id,
           role: "user",
           content: input.message,
           referencedNodeIds: teacherContext.referencedNodeIds,
         },
         {
-          ownerId: req.user.id,
-          conversationId: conversation._id,
           role: "assistant",
           content: answerContent,
           referencedNodeIds: teacherContext.referencedNodeIds,
@@ -291,11 +266,12 @@ router.post(
         },
       ]);
 
-      conversation.mode = input.mode;
-      conversation.scope = input.scope;
-      conversation.nodeId = input.nodeId;
-      conversation.lastMessageAt = new Date();
-      await conversation.save();
+      conversation = await store.ai.updateConversation(req.user.id, conversation._id, {
+        mode: input.mode,
+        scope: input.scope,
+        nodeId: input.nodeId,
+        lastMessageAt: new Date().toISOString(),
+      }) || conversation;
 
       res.status(isNewConversation ? 201 : 200).json({
         conversation,
@@ -308,6 +284,9 @@ router.post(
           message: error.message,
           code: error.code,
         });
+      }
+      if (error instanceof AiRequestError) {
+        return res.status(error.status).json({ message: error.message, code: error.code });
       }
       if (error instanceof AiProviderError) {
         if (error.retryAt) {

@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# Local data (zero-config file storage, generated dev secret)
+backend/data/
+data/
+
 # Dependencies and generated output
 node_modules/
 dist/

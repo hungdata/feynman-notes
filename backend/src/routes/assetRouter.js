@@ -1,10 +1,9 @@
 import crypto from "node:crypto";
-import { Readable } from "node:stream";
 import express from "express";
-import mongoose from "mongoose";
 import multer from "multer";
 import { requireAuth } from "../auth/requireAuth.js";
-import MindMap from "../models/mindMap.js";
+import { getStore } from "../storage/index.js";
+import { ASSET_BUCKET_NAME } from "../storage/mongoStore.js";
 import {
   ImageValidationError,
   MAX_IMAGE_BYTES,
@@ -14,8 +13,7 @@ import {
 } from "../assets/imageValidation.js";
 
 const router = express.Router();
-const BUCKET_NAME = "mindmap_assets";
-const FILES_COLLECTION = `${BUCKET_NAME}.files`;
+const BUCKET_NAME = ASSET_BUCKET_NAME;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 class AssetRouteError extends Error {
@@ -54,19 +52,6 @@ const normalizeAssetId = (value, { required = true } = {}) => {
   return assetId;
 };
 
-const database = () => {
-  if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
-    throw new AssetRouteError("Kho ảnh tạm thời chưa sẵn sàng.", 503);
-  }
-  return mongoose.connection.db;
-};
-
-const bucket = () => new mongoose.mongo.GridFSBucket(database(), { bucketName: BUCKET_NAME });
-const findAsset = (db, ownerId, assetId) => db.collection(FILES_COLLECTION).findOne({
-  "metadata.ownerId": ownerId,
-  "metadata.assetId": assetId,
-});
-
 const assetPayload = (file) => ({
   id: file.metadata.assetId,
   url: `/api/assets/images/${encodeURIComponent(file.metadata.assetId)}`,
@@ -77,74 +62,29 @@ const assetPayload = (file) => ({
   createdAt: file.uploadDate?.toISOString?.() || new Date().toISOString(),
 });
 
-const writeBufferToGridFs = (gridFsBucket, buffer, options) => new Promise((resolve, reject) => {
-  const uploadStream = gridFsBucket.openUploadStream(options.filename, options);
-  const source = Readable.from([buffer]);
-  let settled = false;
-  const finish = (callback) => (value) => {
-    if (settled) return;
-    settled = true;
-    callback(value);
-  };
-
-  uploadStream.once("finish", finish(() => resolve(uploadStream.id)));
-  uploadStream.once("error", finish((error) => {
-    error.gridFsFileId = uploadStream.id;
-    reject(error);
-  }));
-  source.once("error", finish((error) => {
-    error.gridFsFileId = uploadStream.id;
-    reject(error);
-  }));
-  source.pipe(uploadStream);
-});
-
 router.use(requireAuth);
 
 router.post("/images", imageUpload.single("image"), async (req, res, next) => {
   try {
     if (!req.file) throw new AssetRouteError("Hãy chọn một tệp ảnh để tải lên.");
 
-    const db = database();
+    const store = getStore();
     const assetId = normalizeAssetId(req.body?.assetId, { required: false });
-    const existing = await findAsset(db, req.user.id, assetId);
-    // Retries and the browser-to-GridFS migration can safely send the same
+    const existing = await store.assets.find(req.user.id, assetId);
+    // Retries and the browser-to-server migration can safely send the same
     // UUID. Returning the original immutable asset prevents duplicate blobs.
     if (existing) return res.status(200).json({ asset: assetPayload(existing), reused: true });
 
     const image = validateImageUpload({ buffer: req.file.buffer, mimeType: req.file.mimetype });
-    const metadata = {
+    const { file, reused } = await store.assets.save(req.user.id, assetId, image.buffer, {
       ownerId: req.user.id,
       assetId,
       originalName: safeImageFilename(req.file.originalname),
       mimeType: image.mimeType,
       width: image.width,
       height: image.height,
-    };
-
-    let fileId;
-    try {
-      fileId = await writeBufferToGridFs(bucket(), image.buffer, {
-        filename: metadata.originalName,
-        contentType: image.mimeType,
-        metadata,
-      });
-    } catch (error) {
-      // A unique index may reject a concurrent upload with the same UUID. In
-      // that case return the already-created file and keep upload retry-safe.
-      if (error?.code === 11000) {
-        const racedAsset = await findAsset(db, req.user.id, assetId);
-        if (racedAsset) return res.status(200).json({ asset: assetPayload(racedAsset), reused: true });
-      }
-      if (error?.gridFsFileId) {
-        try { await bucket().delete(error.gridFsFileId); } catch { /* best-effort cleanup */ }
-      }
-      throw error;
-    }
-
-    const file = await db.collection(FILES_COLLECTION).findOne({ _id: fileId });
-    if (!file) throw new AssetRouteError("Không thể lưu ảnh.", 500);
-    return res.status(201).json({ asset: assetPayload(file), reused: false });
+    });
+    return res.status(reused ? 200 : 201).json({ asset: assetPayload(file), reused });
   } catch (error) {
     return next(error);
   }
@@ -152,9 +92,9 @@ router.post("/images", imageUpload.single("image"), async (req, res, next) => {
 
 router.get("/images/:assetId", async (req, res, next) => {
   try {
-    const db = database();
+    const store = getStore();
     const assetId = normalizeAssetId(req.params.assetId);
-    const file = await findAsset(db, req.user.id, assetId);
+    const file = await store.assets.find(req.user.id, assetId);
     // Return the same result for an unknown or another user's asset, so UUIDs
     // cannot be used to discover somebody else's uploads.
     if (!file) return res.status(404).json({ message: "Không tìm thấy ảnh." });
@@ -173,7 +113,7 @@ router.get("/images/:assetId", async (req, res, next) => {
       "Content-Security-Policy": "sandbox",
     });
 
-    const downloadStream = bucket().openDownloadStream(file._id);
+    const downloadStream = store.assets.openReadStream(file);
     downloadStream.once("error", (error) => {
       if (!res.headersSent) next(error);
       else res.destroy(error);
@@ -186,24 +126,18 @@ router.get("/images/:assetId", async (req, res, next) => {
 
 router.delete("/images/:assetId", async (req, res, next) => {
   try {
-    const db = database();
+    const store = getStore();
     const assetId = normalizeAssetId(req.params.assetId);
-    const file = await findAsset(db, req.user.id, assetId);
+    const file = await store.assets.find(req.user.id, assetId);
     if (!file) return res.status(404).json({ message: "Không tìm thấy ảnh." });
 
     // An image can be referenced by a full image node or attached to a topic.
     // Refuse deletion while it is referenced so a direct API call cannot leave
     // a saved mind map with a broken image.
-    const referenced = await MindMap.exists({
-      ownerId: req.user.id,
-      $or: [
-        { "document.nodes.data.assetId": assetId },
-        { "document.nodes.data.imageAssetId": assetId },
-      ],
-    });
+    const referenced = await store.mindMaps.referencesAsset(req.user.id, assetId);
     if (referenced) return res.status(409).json({ message: "Ảnh đang được sử dụng trong mind map và chưa thể xóa." });
 
-    await bucket().delete(file._id);
+    await store.assets.remove(file);
     return res.status(204).end();
   } catch (error) {
     return next(error);

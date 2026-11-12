@@ -61,3 +61,40 @@ test("legacy accidental crosslinks are removed during version 4 migration", () =
   });
   assert.deepEqual(migrated.crossLinks, []);
 });
+
+test("version 6 maps hand their default colours to the style sheet but keep user choices", () => {
+  const migrated = migrateDocument({
+    version: 6,
+    id: "v6",
+    title: "V6",
+    layout: "horizontal",
+    settings: { theme: "pastel", background: "#f7f9fc", relationStyle: "straight", relationWidth: 2.5, grid: "dots" },
+    nodes: [
+      { id: "root", type: "topic", position: { x: 80, y: 240 }, measured: { width: 450, height: 76 }, data: { label: "Root", parentId: null, color: "#172554", textColor: "#ffffff", borderColor: "#2563eb", branchColor: "#2563eb", fontSize: 18, fontWeight: 700 } },
+      { id: "a", type: "topic", position: { x: 670, y: 100 }, data: { label: "A", parentId: "root", color: "#ffffff", textColor: "#172033", borderColor: "#dbe4f0", branchColor: "#7c3aed", fontSize: 15, fontWeight: 600, checked: true } },
+      { id: "ai", type: "topic", position: { x: 670, y: 300 }, data: { label: "Teacher", parentId: "root", color: "#f5f3ff", textColor: "#4c1d95", borderColor: "#a78bfa", branchColor: "#ff00aa" } },
+    ],
+  });
+  const [root, a, ai] = migrated.nodes;
+  assert.equal(migrated.settings.styleSheet, "pastel");
+  assert.equal(migrated.settings.background, "");
+  assert.equal(migrated.settings.relationStyle, "");
+  assert.equal(migrated.settings.grid, "none");
+  assert.equal(migrated.settings.checkboxes, true);
+  assert.equal(root.data.color, "");
+  assert.equal(root.data.fontSize, null);
+  assert.equal(root.measured, undefined);
+  assert.deepEqual(root.position, { x: 80, y: 240 });
+  assert.equal(a.data.branchColor, "");
+  assert.equal(a.data.checkbox, true);
+  assert.equal(ai.data.color, "#f5f3ff");
+  assert.equal(ai.data.branchColor, "#ff00aa");
+});
+
+test("templates create nested branches with their own style sheet", async () => {
+  const { createFromTemplate } = await import("./storage.js");
+  const document = createFromTemplate("feynman");
+  assert.equal(document.title, "Phương pháp Feynman");
+  assert.ok(document.nodes.length > 5);
+  assert.ok(document.nodes.some((node) => node.data.parentId && node.data.parentId !== "root"));
+});

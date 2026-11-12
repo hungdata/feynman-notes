@@ -13,6 +13,7 @@ import {
   serializeCookie,
   statesMatch,
 } from "../auth/session.js";
+import { isLocalModeEnabled, localUserFor } from "../auth/localMode.js";
 
 const router = express.Router();
 const isProduction = process.env.NODE_ENV === "production";
@@ -93,10 +94,15 @@ const currentUser = (req) => sessionSecret
   ? readSessionToken(parseCookies(req.headers.cookie)[sessionCookie], sessionSecret)
   : null;
 
-router.get("/providers", (_req, res) => res.json(providerConfig));
+router.get("/providers", (req, res) => res.json({
+  ...providerConfig,
+  // True only when this browser talks to the server on the same computer.
+  local: Boolean(localUserFor(req)),
+  localModeEnabled: isLocalModeEnabled(),
+}));
 
 router.get("/me", (req, res) => {
-  return res.json({ user: currentUser(req) });
+  return res.json({ user: currentUser(req) || localUserFor(req) });
 });
 
 router.post("/guest", (req, res) => {
