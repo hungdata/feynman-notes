@@ -20,14 +20,14 @@ const document = { id: "map-1", nodes: [
   { id: "old", type: "topic", data: { label: "Huấn luyện", parentId: "root" } },
 ] };
 let nextUser = 0;
-const setup = async (t) => {
+const setup = async (t, { mapDocument = document, responseBranches } = {}) => {
   const requests = [];
   const nativeFetch = globalThis.fetch;
   t.mock.method(globalThis, "fetch", async (url, options) => {
     if (String(url).startsWith("https://api.openai.com/")) {
       requests.push(JSON.parse(options.body));
       return { ok: true, status: 200, json: async () => ({
-        model: "gpt-5-nano", choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ branches: [
+        model: "gpt-5-nano", choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ branches: responseBranches || [
           { label: "Huấn luyện", children: [] },
           { label: "Dự đoán", parentId: "bad", children: [{ label: "Mẫu mới" }] },
         ] }) } }],
@@ -39,7 +39,7 @@ const setup = async (t) => {
   let reads = 0;
   setStore({ mindMaps: { get: async (owner, id) => {
     reads++;
-    return owner === ownerId && id === "map-1" ? { document } : null;
+    return owner === ownerId && id === "map-1" ? { document: mapDocument } : null;
   } } });
   const app = express();
   app.use(express.json());
@@ -77,6 +77,27 @@ test("idea endpoint returns only validated preview nodes without writing a mind 
   assert.equal(requests[0].response_format.json_schema.strict, true);
   assert.equal(requests[0].max_completion_tokens, 1200);
   assert.equal(document.nodes.length, 2);
+});
+
+test("expanding again can extend an existing branch while pruning its saved leaves", async (t) => {
+  const mapDocument = { id: "map-1", nodes: [
+    ...document.nodes,
+    { id: "loss", type: "topic", data: { label: "Hàm mất mát", parentId: "old" } },
+  ] };
+  const { call, requests } = await setup(t, { mapDocument, responseBranches: [
+    { label: "Huấn luyện", children: [{ label: "Hàm mất mát" }, { label: "Tối ưu tham số" }] },
+    { label: "Supervised learning", children: [{ label: "Không được sao chép gốc" }] },
+    { label: "Dự đoán", children: [{ label: "Mẫu mới" }] },
+  ] });
+  const result = await call("expand", { documentId: "map-1", nodeId: "root" });
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body.branches, [
+    { label: "Huấn luyện", children: [{ label: "Tối ưu tham số" }] },
+    { label: "Dự đoán", children: [{ label: "Mẫu mới" }] },
+  ]);
+  const context = JSON.parse(requests[0].messages[1].content);
+  assert.deepEqual(context.existingBranches, [{ label: "Huấn luyện", children: [{ label: "Hàm mất mát" }] }]);
+  assert.equal(mapDocument.nodes.length, 3, "expanding still only previews ideas");
 });
 
 test("chat and expansion share one per-user request allowance", async (t) => {

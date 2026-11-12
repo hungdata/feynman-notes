@@ -172,10 +172,10 @@ router.post("/expand", requireAiAvailability, limitAiRequests, async (req, res, 
     const input = normalizeExpansionRequest(req.body);
     const mindMap = await getStore().mindMaps.get(req.user.id, input.documentId);
     if (!mindMap || mindMap.document?.trashedAt) return res.status(404).json({ message: "Không tìm thấy mind map." });
-    const { messages, existingLabels } = buildIdeaExpansion(mindMap.document, input);
+    const { messages, existingLabels, existingBranches } = buildIdeaExpansion(mindMap.document, input);
     const result = await runIdeaExpansionModel({ messages });
     const topicLabel = mindMap.document.nodes.find((node) => node.id === input.nodeId)?.data?.label || "";
-    const branches = normalizeIdeaBranches(result.data, { existingLabels, topicLabel });
+    const branches = normalizeIdeaBranches(result.data, { existingLabels, existingBranches, topicLabel });
     return res.json({ documentId: input.documentId, nodeId: input.nodeId, branches, model: result.model });
   } catch (error) {
     if (error instanceof AiBudgetError || error instanceof AiProviderError || error instanceof AiRequestError || error instanceof IdeaExpansionError) {
