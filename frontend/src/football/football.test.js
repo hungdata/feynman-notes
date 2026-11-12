@@ -118,7 +118,7 @@ test("chuyền cho người đứng việt vị bị thổi phạt", () => {
   assert.equal(match.setPiece.team, 1);
 });
 
-test("phòng ngự: Q đổi sang cầu thủ gần bóng, xoạc từ sau lưng là phạm lỗi", () => {
+test("phòng ngự: đổi sang cầu thủ gần bóng, xoạc trúng người hoặc trúng bóng", () => {
   const match = createMatch({ seed: 6 });
   run(match, 1);
   act(match, "short", { power: 0.3 });

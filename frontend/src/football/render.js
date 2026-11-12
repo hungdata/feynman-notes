@@ -576,6 +576,7 @@ export const createStadium = (container, match, { night = false, camera: cameraM
   receiverRing.position.y = 0.03;
   scene.add(receiverRing);
   let labelFor = -1;
+  let ringOn = true;
 
   // Camera.
   let mode = cameraMode;
@@ -681,7 +682,8 @@ export const createStadium = (container, match, { night = false, camera: cameraM
 
     const controlled = match.players[match.user.controlledId];
     const showCursor = controlled && !controlled.sentOff && !match.user.auto && match.phase !== "fulltime";
-    cursor.visible = ring.visible = Boolean(showCursor);
+    cursor.visible = Boolean(showCursor);
+    ring.visible = Boolean(showCursor) && ringOn;
     if (showCursor) {
       const bob = Math.sin(time * 6) * 0.08;
       cursor.position.set(controlled.x, 2.35 + bob + (controlled.state === "dive" ? 1 : 0), controlled.z);
@@ -750,6 +752,7 @@ export const createStadium = (container, match, { night = false, camera: cameraM
     cheer,
     dispose,
     setCamera: (next) => { mode = next; },
+    setRing: (on) => { ringOn = on; },
     get camera() { return camera; },
   };
 };

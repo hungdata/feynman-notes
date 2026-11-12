@@ -5,8 +5,8 @@
  * phát bóng, việt vị, phạm lỗi, thẻ, phạt đền, hết hiệp, đổi sân.
  */
 import { DIFFICULTIES, FIELD, KITS, PHYSICS, TEAM_PRESETS, buildSquad } from "./constants.js";
-import { clearBall, choosePassTarget, emit, headBall, keeperDistribute, passBall, shootBall } from "./actions.js";
-import { keeperWithBall, predictBall, shapeTarget, thinkTeams } from "./ai.js";
+import { boxTarget, clearBall, choosePassTarget, emit, headBall, keeperDistribute, passBall, shootBall } from "./actions.js";
+import { interceptPoint, keeperWithBall, predictBall, shapeTarget, thinkTeams } from "./ai.js";
 import { angleBetween, attackGoal, clamp, dist, facing, forward, gaussian, headingOf, humanTeam, inPenaltyBox, isUser, keeperOf, len, nearestOpponent, norm, owner, ownGoal, seededRandom, teamOf, wrapAngle } from "./util.js";
 
 const HALF_SECONDS = 45 * 60;
@@ -17,7 +17,7 @@ const newStats = () => ({ shots: 0, onTarget: 0, passes: 0, passOk: 0, fouls: 0,
 const jogSpeed = (p) => (5 + p.attrs.pace * 0.02) * (0.82 + 0.18 * p.stamina);
 const sprintSpeed = (p) => (6.2 + p.attrs.pace * 0.034) * (0.78 + 0.22 * p.stamina);
 
-const makePlayer = (spec) => ({
+const makePlayer = (spec, random = Math.random) => ({
   ...spec,
   x: 0, z: 0, vx: 0, vz: 0,
   heading: 0,
@@ -28,7 +28,7 @@ const makePlayer = (spec) => ({
   cooldown: 0,
   sprint: false,
   goal: null,
-  anim: { kick: 0, kickSide: 1, stride: Math.random() * 6, tackle: 0 },
+  anim: { kick: 0, kickSide: 1, stride: random() * 6, tackle: 0 },
   yellow: 0,
   sentOff: false,
   nextThink: 0,
@@ -60,15 +60,15 @@ export const createMatch = (options = {}) => {
     phaseT: 0,
     setPiece: null,
     teams: [
-      { ...TEAM_PRESETS.home, names: undefined, kit: KITS[homeKit], kitId: homeKit, formation: homeFormation, dir: 1, score: 0, stats: newStats() },
-      { ...TEAM_PRESETS.away, names: undefined, kit: KITS[awayKit], kitId: awayKit, formation: awayFormation, dir: -1, score: 0, stats: newStats() },
+      { ...TEAM_PRESETS.home, names: undefined, kit: KITS[homeKit], kitId: homeKit, formation: homeFormation, dir: 1, score: 0, mentality: 0, stats: newStats() },
+      { ...TEAM_PRESETS.away, names: undefined, kit: KITS[awayKit], kitId: awayKit, formation: awayFormation, dir: -1, score: 0, mentality: 0, stats: newStats() },
     ],
-    players: [...home, ...away].map(makePlayer),
+    players: [...home, ...away].map((spec) => makePlayer(spec, rng)),
     ball: { x: 0, y: R, z: 0, vx: 0, vy: 0, vz: 0, spin: null, owner: null, lastTouch: null, lastTeam: null, touchTime: 0, pass: null, shot: null, offside: null, inGoal: 0 },
     events: [],
     scorers: [],
-    user: { team: 0, controlledId: 9, buffer: null, switchedAt: 0, auto: Boolean(options.autoplay) },
-    input: { mx: 0, mz: 0, sprint: false, shield: false, contain: false, callPress: false },
+    user: { team: 0, controlledId: 9, buffer: null, switchedAt: 0, auto: Boolean(options.autoplay), oneTwo: null, keeperGuess: null },
+    input: { mx: 0, mz: 0, sprint: false, shield: false, contain: false, press: false, barge: false, holdBall: false, callPress: false, pushUp: false },
     possession: [0, 0],
     firstKickoff: 0,
     accumulator: 0,
@@ -240,7 +240,7 @@ export const startSetPiece = (match, type, team, spot) => {
   if (type === "throw") pushOut(match, defending, spot, 2.2);
 
   const userSide = team === match.user.team;
-  match.setPiece = { type, team, x: spot.x, z: spot.z, takerId: taker.id, t: 0, ready: type === "throw" ? 0.5 : 0.9, auto: userSide ? (type === "penalty" ? 20 : 10) : type === "penalty" ? 1.8 : 1.3 + match.rng() * 0.6 };
+  match.setPiece = { type, team, x: spot.x, z: spot.z, takerId: taker.id, t: 0, ready: type === "throw" ? 0.5 : 0.9, auto: userSide ? (type === "penalty" ? 20 : 10) : type === "penalty" ? 2.8 : 1.3 + match.rng() * 0.6 };
   if (userSide) setControlled(match, taker.id);
   if (type === "corner") match.teams[team].stats.corners += 1;
   emit(match, type, { team, x: spot.x, z: spot.z });
@@ -295,6 +295,7 @@ const gainBall = (match, p, { hands = false } = {}) => {
     match.teams[p.team].stats.saves += 1;
     emit(match, "save", { id: p.id, caught: true });
   }
+  for (const keeper of match.players) if (keeper.handsBan && keeper.id !== p.id) keeper.handsBan = false;
   ball.owner = p.id;
   ball.lastTouch = p.id;
   ball.lastTeam = p.team;
@@ -349,7 +350,7 @@ const tryPickup = (match) => {
     const d = Math.hypot(ball.x - foot.x, ball.z - foot.z);
     const body = Math.hypot(ball.x - p.x, ball.z - p.z);
     const backPass = pass && match.players[pass.from].team === p.team && pass.kind !== "lob";
-    if (p.role === "GK" && inPenaltyBox(match, p.team, ball) && !backPass && ball.y < 2.6 && body < 1.25) {
+    if (p.role === "GK" && !p.handsBan && inPenaltyBox(match, p.team, ball) && !backPass && ball.y < 2.6 && body < 1.25) {
       candidates.push({ p, d: body, hands: true });
       continue;
     }
@@ -401,8 +402,9 @@ const tryPickup = (match) => {
   if (header) {
     const buffered = match.user.buffer && match.user.buffer.until >= match.time && isUser(match, header) ? match.user.buffer : null;
     match.user.buffer = null;
-    if (buffered && buffered.action === "shoot") shootBall(match, header, { power: buffered.opts?.power ?? 0.6, kind: "header", aim: buffered.opts?.aim });
-    else if (buffered && ["short", "through", "lob"].includes(buffered.action)) { passBall(match, header, { kind: "short", aim: buffered.opts?.aim, power: 0.3 }); match.ball.vy = 2; }
+    if (buffered && buffered.action === "clear") clearBall(match, header);
+    else if (buffered && SHOTS.has(buffered.action)) shootBall(match, header, { power: buffered.opts?.power ?? 0.6, kind: "header", aim: buffered.opts?.aim });
+    else if (buffered && PASSES.has(buffered.action)) { passBall(match, header, { kind: "short", aim: buffered.opts?.aim, power: 0.3 }); match.ball.vy = 2; }
     else headBall(match, header);
     header.anim.header = 1;
     if (header.team === match.user.team) setControlled(match, header.id);
@@ -441,10 +443,24 @@ const contest = (match, dt) => {
   for (const o of match.players) {
     if (o.team === holder.team || o.sentOff || o.state !== "run" || match.time < o.cooldown) continue;
     const d = Math.hypot(o.x - match.ball.x, o.z - match.ball.z);
+    const user = isUser(match, o);
+    // Giữ Space (FO4): tì vai, đẩy người — so sức mạnh khi chạy sát người cầm bóng.
+    if (user && match.input.barge && dist(o, holder) < 1.3) {
+      const rate = 1.15 * (o.attrs.physical + 20) / (holder.attrs.physical + 20) * (isUser(match, holder) && match.input.shield ? 0.5 : 1);
+      if (match.rng() < rate * dt) { o.anim.tackle = 0.6; winTackle(match, o, holder, match.rng() < 0.5); return; }
+      continue;
+    }
     if (d > 0.95) continue;
     let rate;
-    if (isUser(match, o)) rate = match.input.contain ? 0.95 : 0.2;
-    else rate = o.team === match.user.team ? 0.85 : 1.45 * match.difficulty.tackle;
+    if (user) {
+      const input = match.input;
+      if (input.press) rate = 1.25;
+      else if (input.contain) {
+        // C chỉ kèm, không tranh bóng; C + hướng về phía bóng mới tranh chấp.
+        const toBall = norm(match.ball.x - o.x, match.ball.z - o.z);
+        rate = len(input.mx, input.mz) > 0.3 && input.mx * toBall.x + input.mz * toBall.z > 0.3 ? 0.6 : 0;
+      } else rate = 0.15;
+    } else rate = o.team === match.user.team ? 0.85 : 1.45 * match.difficulty.tackle;
     rate *= (o.attrs.defend + 20) / (Math.max(35, holder.attrs.dribble) + 20);
     if (holder.sprint) rate *= 1.35;
     if (isUser(match, holder) && match.input.shield) rate *= 0.45;
@@ -647,25 +663,65 @@ const movePlayer = (match, p, dt) => {
       const amount = Math.min(1, len(input.mx, input.mz));
       sprint = input.sprint && amount > 0.1;
       const holder = owner(match);
-      if (input.contain && holder && holder.team !== p.team) {
-        // Giữ D: tự áp sát, đứng chắn giữa người cầm bóng và khung thành.
+      const marking = holder && holder.team !== p.team;
+      if (marking && input.press) {
+        // Giữ D (FO4): áp sát — lao thẳng vào người cầm bóng để gây sức ép, dễ bị qua người.
         const goal = ownGoal(match, p.team);
         const side = norm(goal.x - holder.x, goal.z - holder.z);
-        const spot = { x: holder.x + side.x * 1.15 + holder.vx * 0.15, z: holder.z + side.z * 1.15 + holder.vz * 0.15 };
+        const spot = { x: holder.x + side.x * 0.55 + holder.vx * 0.25, z: holder.z + side.z * 0.55 + holder.vz * 0.25 };
         const toward = norm(spot.x - p.x, spot.z - p.z);
         const gap = dist(p, spot);
-        const speed = gap > 5 ? sprintSpeed(p) : Math.min(jogSpeed(p) * 1.05, gap * 4 + Math.hypot(holder.vx, holder.vz));
-        wantX = toward.x * speed + input.mx * 1.5;
-        wantZ = toward.z * speed + input.mz * 1.5;
+        const speed = gap > 2.2 ? sprintSpeed(p) : Math.min(sprintSpeed(p), gap * 5 + Math.hypot(holder.vx, holder.vz));
+        wantX = toward.x * speed + input.mx * 1.2;
+        wantZ = toward.z * speed + input.mz * 1.2;
         face = holder;
-        sprint = gap > 5;
+        sprint = gap > 2.2;
+      } else if (marking && input.contain) {
+        // C (FO4): kèm người thấp — hạ trọng tâm, đứng chắn phía khung thành, không lao vào tranh bóng.
+        // E+C: kèm chặt khi đối thủ bứt tốc. C + hướng: tự di chuyển ngang khi kèm.
+        const goal = ownGoal(match, p.team);
+        const side = norm(goal.x - holder.x, goal.z - holder.z);
+        const tight = input.sprint;
+        const gap0 = tight ? 1.25 : 2.1;
+        const spot = { x: holder.x + side.x * gap0 + holder.vx * 0.2, z: holder.z + side.z * gap0 + holder.vz * 0.2 };
+        const carrierSpeed = Math.hypot(holder.vx, holder.vz);
+        const jockey = tight ? sprintSpeed(p) : Math.max(jogSpeed(p) * 0.82, Math.min(carrierSpeed + 0.6, jogSpeed(p)));
+        if (amount > 0.05) {
+          const dir = norm(input.mx, input.mz);
+          wantX = dir.x * jockey * amount;
+          wantZ = dir.z * jockey * amount;
+        } else {
+          const toward = norm(spot.x - p.x, spot.z - p.z);
+          const gap = dist(p, spot);
+          const speed = Math.min(jockey, gap * 4.5 + carrierSpeed * 0.9);
+          wantX = toward.x * speed;
+          wantZ = toward.z * speed;
+        }
+        face = holder;
+        sprint = tight;
+      } else if (amount <= 0.05 && match.ball.owner === null && match.ball.pass && match.ball.pass.to === p.id) {
+        // Đón bóng hỗ trợ (như FO4): không bấm hướng thì người nhận tự chạy tới điểm đón.
+        const meet = interceptPoint(p, predictBall(match, 2.4), 0.05, 1.6) || match.ball.pass.target;
+        const dx = meet.x - p.x;
+        const dz = meet.z - p.z;
+        const d = Math.hypot(dx, dz);
+        const speed = d > 6 ? sprintSpeed(p) : jogSpeed(p) * Math.min(1, d / 2);
+        if (d > 0.2) { wantX = (dx / d) * speed; wantZ = (dz / d) * speed; }
+        sprint = d > 6;
       } else if (amount > 0.05) {
         const dir = norm(input.mx, input.mz);
         let speed = (sprint ? sprintSpeed(p) : jogSpeed(p)) * amount;
         if (hasBall) speed *= 0.88 + p.attrs.dribble * 0.0012;
-        if (input.shield) speed = Math.min(speed, 2.6);
+        if (hasBall && input.shield) speed = Math.min(speed, 2.6);
+        if (hasBall && input.holdBall) speed = Math.min(speed, 1.6);
         wantX = dir.x * speed;
         wantZ = dir.z * speed;
+        if (hasBall && input.holdBall) face = { x: p.x + dir.x * 5, z: p.z + dir.z * 5 };
+      }
+      if (hasBall && input.shield) {
+        // C có bóng (FO4): che bóng — quay lưng về phía hậu vệ gần nhất.
+        const near = nearestOpponent(match, p);
+        if (near.player && near.d < 4) face = { x: p.x + (p.x - near.player.x), z: p.z + (p.z - near.player.z) };
       }
     } else if (p.goal) {
       const dx = p.goal.x - p.x;
@@ -682,7 +738,9 @@ const movePlayer = (match, p, dt) => {
     const accel = (hasBall ? 13 : 17) + p.attrs.pace * 0.05;
     steerTo(p, wantX, wantZ, accel, dt);
     const speed = Math.hypot(p.vx, p.vz);
-    if (speed > 0.6 && !(face && speed < 3.2)) turnTo(p, headingOf(p.vx, p.vz), hasBall ? (sprint ? 6 : 9) : 12, dt);
+    const strafing = user && face && (match.input.contain || match.input.press || (hasBall && (match.input.shield || match.input.holdBall)));
+    if (strafing) turnTo(p, headingOf(face.x - p.x, face.z - p.z), 10, dt);
+    else if (speed > 0.6 && !(face && speed < 3.2)) turnTo(p, headingOf(p.vx, p.vz), hasBall ? (sprint ? 6 : 9) : 12, dt);
     else if (face) turnTo(p, headingOf(face.x - p.x, face.z - p.z), 8, dt);
     else if (speed < 0.6 && match.ball && !hasBall) turnTo(p, headingOf(match.ball.x - p.x, match.ball.z - p.z), 5, dt);
   }
@@ -794,10 +852,52 @@ const postHit = (match, prev) => {
   }
 };
 
+/** Cú sút trúng người: hậu vệ, hàng rào (nhảy lên nếu bấm W) chặn bóng. */
+const blockShot = (match) => {
+  const { ball } = match;
+  const shot = ball.shot;
+  if (!shot || ball.owner !== null) return;
+  shot.tried ||= new Set();
+  for (const p of match.players) {
+    if (p.team === shot.team || p.sentOff || p.role === "GK" || shot.tried.has(p.id) || p.state === "down") continue;
+    const reach = Math.hypot(ball.x - p.x, ball.z - p.z);
+    if (reach > 0.42) continue;
+    const jumping = p.jumpUntil && p.jumpUntil > match.time;
+    const top = jumping ? 2.45 : 1.85;
+    const bottom = jumping ? 0.55 : 0;
+    shot.tried.add(p.id);
+    if (ball.y > top || ball.y < bottom) continue;
+    if (match.rng() > (p.inWall ? 0.92 : 0.6)) continue;
+    const away = norm(ball.vx, ball.vz);
+    ball.vx = -away.x * (2 + match.rng() * 4) + (match.rng() - 0.5) * 6;
+    ball.vz = -away.z * (2 + match.rng() * 4) + (match.rng() - 0.5) * 6;
+    ball.vy = 1.5 + match.rng() * 3;
+    ball.spin = null;
+    ball.shot = null;
+    ball.lastTouch = p.id;
+    ball.lastTeam = p.team;
+    p.cooldown = match.time + 0.25;
+    emit(match, "block", { id: p.id });
+    return;
+  }
+};
+
 const moveBall = (match, dt) => {
   const { ball } = match;
   const holder = owner(match);
-  if (holder) { carryBall(match, holder); return; }
+  if (holder) {
+    const before = { x: ball.x, y: ball.y, z: ball.z };
+    carryBall(match, holder);
+    // Rê bóng ra ngoài đường biên (hoặc vào lưới) cũng là bóng ra ngoài.
+    if (!match.setPiece && holder.state !== "hold" && (Math.abs(ball.x) > FIELD.halfL + R || Math.abs(ball.z) > FIELD.halfW + R)) {
+      ball.lastTouch = holder.id;
+      ball.lastTeam = holder.team;
+      ball.owner = null;
+      holder.cooldown = match.time + 0.5;
+      checkGoalAndOut(match, before);
+    }
+    return;
+  }
   const prev = { x: ball.x, y: ball.y, z: ball.z };
   const airborne = ball.y > R + 0.005 || ball.vy > 0.05;
   if (airborne) {
@@ -836,6 +936,7 @@ const moveBall = (match, dt) => {
     return;
   }
   postHit(match, prev);
+  blockShot(match);
   checkGoalAndOut(match, prev);
 };
 
@@ -900,35 +1001,141 @@ export const userAttacking = (match) => {
   return Boolean(pass && match.players[pass.from].team === match.user.team);
 };
 
+/**
+ * Ngữ cảnh phím như FO4: cùng một phím làm việc khác nhau khi có bóng, khi phòng ngự,
+ * khi thủ môn ôm bóng, hay trong từng tình huống cố định.
+ */
+export const userContext = (match) => {
+  const sp = match.setPiece;
+  if (sp) return sp.team === match.user.team ? `sp:${sp.type}` : `def:${sp.type}`;
+  if (match.phase !== "play") return "idle";
+  const me = match.players[match.user.controlledId];
+  if (me && match.ball.owner === me.id) return me.role === "GK" && me.state === "hold" ? "keeper" : "ball";
+  return userAttacking(match) ? "support" : "defense";
+};
+
+const SHOTS = new Set(["shoot", "finesse", "chip", "low", "power"]);
+const PASSES = new Set(["short", "through", "lob", "lobThrough", "driven", "quick", "lofted", "lowCross", "earlyCross", "oneTwo"]);
+
+const passKindOf = (action) => {
+  if (action === "through") return { kind: "through" };
+  if (action === "lobThrough") return { kind: "lobThrough" };
+  if (action === "lob") return { kind: "lob" };
+  if (["lofted", "lowCross", "earlyCross"].includes(action)) return { kind: "lob", style: action };
+  if (action === "driven" || action === "quick") return { kind: "short", style: action };
+  return { kind: "short" };
+};
+
+/** Kỹ thuật với bóng: Ctrl+hướng đẩy bóng dài, Shift+hướng lách người, Z+hướng giật bóng. */
+const touchMove = (match, p, action, aim) => {
+  const dir = aim ? norm(aim.x, aim.z) : facing(p.heading);
+  const { ball } = match;
+  if (action === "knock") {
+    ball.owner = null;
+    Object.assign(ball, { x: p.x + dir.x * 0.7, z: p.z + dir.z * 0.7, vx: dir.x * 9.5, vz: dir.z * 9.5, vy: 0.4, lastTouch: p.id, lastTeam: p.team, pass: null, shot: null, offside: null });
+    p.cooldown = match.time + 0.2;
+    p.anim.kick = 0.55;
+    emit(match, "kick", { id: p.id, strength: 0.35 });
+    emit(match, "skill", { id: p.id, move: "knock" });
+    return;
+  }
+  // Lách người / giật bóng: đổi hướng gấp, hậu vệ đứng sát dễ bị loạng choạng.
+  const quick = action === "sidestep" ? 1.15 : 0.8;
+  p.heading = headingOf(dir.x, dir.z);
+  const speed = Math.hypot(p.vx, p.vz);
+  p.vx = dir.x * Math.max(speed * 0.7, 3.2 * quick);
+  p.vz = dir.z * Math.max(speed * 0.7, 3.2 * quick);
+  p.touchStart = match.time;
+  const skill = p.attrs.dribble / 100;
+  for (const o of match.players) {
+    if (o.team === p.team || o.sentOff || o.state !== "run" || dist(o, p) > 2.2) continue;
+    if (match.rng() < 0.25 + skill * 0.5 - o.attrs.defend / 400) { o.cooldown = match.time + 0.45; o.state = "stumble"; o.stateT = 0.35; }
+  }
+  p.anim.kick = 0.35;
+  emit(match, "skill", { id: p.id, move: action });
+};
+
+/** Giả sút (S+D+hướng) / giả chuyền (S+A+hướng): nhấc chân rồi kéo bóng sang hướng mũi tên. */
+const feint = (match, p, action, aim) => {
+  const dir = aim ? norm(aim.x, aim.z) : facing(p.heading + Math.PI / 2);
+  p.heading = headingOf(dir.x, dir.z);
+  p.vx = dir.x * 2.6;
+  p.vz = dir.z * 2.6;
+  p.touchStart = match.time;
+  p.anim.kick = 0.5;
+  const sell = 0.45 + p.attrs.dribble / 250;
+  for (const o of match.players) {
+    if (o.team === p.team || o.sentOff || o.state !== "run" || dist(o, p) > 6) continue;
+    // Hậu vệ và thủ môn tin là có cú sút: lao ra chặn rồi khựng lại.
+    if (match.rng() < sell) {
+      o.cooldown = match.time + (o.role === "GK" ? 0.7 : 0.5);
+      o.state = "stumble";
+      o.stateT = o.role === "GK" ? 0.55 : 0.4;
+      if (o.role === "GK" && action === "fakeShot") o.anim.tackle = 1;
+    }
+  }
+  emit(match, "skill", { id: p.id, move: action });
+};
+
+const keeperHands = (match, p, action, opts) => {
+  const aim = opts.aim && len(opts.aim.x, opts.aim.z) > 0.2 ? opts.aim : null;
+  const power = clamp(opts.power ?? 0.4, 0, 1);
+  if (action === "gkDrop") {
+    // W khi thủ môn ôm bóng: thả bóng xuống chân để tự đẩy bóng lên.
+    p.state = "run";
+    p.handsBan = true;
+    match.ball.y = R;
+    emit(match, "drop", { id: p.id });
+    return;
+  }
+  if (action === "punt" || action === "lob" || action === "shoot" || action === "power" || action === "through" || action === "lobThrough") {
+    // A hoặc D: phát bóng dài, bổng và mạnh.
+    const receiver = choosePassTarget(match, p, aim, "lob", 1) || null;
+    if (receiver) passBall(match, p, { kind: "lob", receiver, power: 0.9, setPiece: "goalkick", style: "lofted" });
+    else keeperDistribute(match, p, "long");
+  } else {
+    // S ném ngắn, giữ S ném xa, Z+S ném thấp căng.
+    const longThrow = action === "longThrow" || power > 0.55;
+    const receiver = choosePassTarget(match, p, aim, longThrow ? "lob" : "short", longThrow ? 0.8 : power);
+    if (!receiver) keeperDistribute(match, p, "short");
+    else if (longThrow) passBall(match, p, { kind: "throw", receiver, power: 1, setPiece: "goalkick", style: "longThrow" });
+    else passBall(match, p, { kind: "short", receiver, power, setPiece: "goalkick", style: action === "driven" || action === "lowThrow" ? "driven" : null });
+  }
+  switchToReceiver(match);
+};
+
 const performAttack = (match, p, action, opts = {}) => {
   const aim = opts.aim && len(opts.aim.x, opts.aim.z) > 0.2 ? opts.aim : null;
   const power = clamp(opts.power ?? 0.5, 0, 1);
-  if (p.state === "hold" && p.role === "GK" && !match.setPiece) {
-    if (action === "lob" || action === "through" || action === "lobThrough") keeperDistribute(match, p, "long");
-    else {
-      const receiver = choosePassTarget(match, p, aim, "short", power);
-      if (receiver) passBall(match, p, { kind: "short", receiver, power, setPiece: "goalkick" });
-      else keeperDistribute(match, p, "short");
-    }
-    switchToReceiver(match);
-    return;
-  }
-  if (action === "shoot" || action === "finesse" || action === "chip" || action === "low") {
+  if (p.state === "hold" && p.role === "GK" && !match.setPiece) { keeperHands(match, p, action, opts); return; }
+  if (SHOTS.has(action)) {
     shootBall(match, p, { power, kind: action === "shoot" ? "normal" : action, aim });
     return;
   }
-  if (action === "knock") {
-    const dir = aim ? norm(aim.x, aim.z) : facing(p.heading);
-    const { ball } = match;
-    ball.owner = null;
-    Object.assign(ball, { vx: dir.x * 9.5, vz: dir.z * 9.5, vy: 0.4, lastTouch: p.id, lastTeam: p.team, pass: null, shot: null, offside: null });
-    p.cooldown = match.time + 0.18;
-    p.anim.kick = 0.6;
-    emit(match, "kick", { id: p.id, strength: 0.35 });
-    return;
+  if (action === "clear") { clearBall(match, p); return; }
+  if (action === "knock" || action === "sidestep" || action === "drag") { touchMove(match, p, action, aim); return; }
+  if (action === "fakeShot" || action === "fakePass") { feint(match, p, action, aim); return; }
+  if (!PASSES.has(action)) return;
+  // Đang chờ bật tường (Q+S rồi S): đường chuyền trả lại vào bước chạy của người vừa chuyền.
+  const wall = match.user.oneTwo;
+  if (wall && wall.until > match.time && wall.wallId === p.id && (action === "short" || action === "through" || action === "oneTwo")) {
+    const runner = match.players[wall.runnerId];
+    match.user.oneTwo = null;
+    if (runner && !runner.sentOff) {
+      passBall(match, p, { kind: "through", receiver: runner, power: 0.55 });
+      emit(match, "oneTwo", { id: p.id, to: runner.id });
+      switchToReceiver(match);
+      return;
+    }
   }
-  const kind = action === "lob" ? "lob" : action === "through" ? "through" : action === "lobThrough" ? "lobThrough" : "short";
-  passBall(match, p, { kind, power, aim });
+  const { kind, style } = passKindOf(action);
+  const receiver = passBall(match, p, { kind, style, power, aim });
+  if (action === "oneTwo" && receiver) {
+    // Người chuyền băng lên ngay; bấm S/W lần nữa để trả lại.
+    const ahead = forward(match, p.team, 1);
+    p.runTo = { x: clamp(p.x + ahead * 14, -FIELD.halfL + 2, FIELD.halfL - 2), z: clamp(p.z + (receiver.z - p.z) * 0.2, -FIELD.halfW + 2, FIELD.halfW - 2), until: match.time + 3 };
+    match.user.oneTwo = { runnerId: p.id, wallId: receiver.id, until: match.time + 3.5 };
+  }
   switchToReceiver(match);
 };
 
@@ -937,7 +1144,7 @@ const switchToReceiver = (match) => {
   if (pass && pass.to !== null && match.players[pass.to].team === match.user.team) setControlled(match, pass.to);
 };
 
-/** Chọn cầu thủ để đổi sang khi phòng ngự (Q): gần bóng nhất, ưu tiên người đứng chắn phía khung thành. */
+/** S khi phòng ngự (FO4): đổi sang cầu thủ hợp lý nhất — gần bóng, ưu tiên người đứng chắn phía khung thành. */
 export const bestSwitch = (match) => {
   const { ball } = match;
   const goal = ownGoal(match, match.user.team);
@@ -953,78 +1160,197 @@ export const bestSwitch = (match) => {
   return best;
 };
 
+/** Shift + hướng (FO4): đổi sang cầu thủ nằm theo hướng mũi tên tính từ người đang điều khiển. */
+export const switchToward = (match, aim) => {
+  const current = match.players[match.user.controlledId];
+  if (!current || !aim || len(aim.x, aim.z) < 0.2) return bestSwitch(match);
+  const look = norm(aim.x, aim.z);
+  let best = null;
+  let bestScore = Infinity;
+  for (const p of teamOf(match, match.user.team)) {
+    if (p.role === "GK" || p.id === current.id) continue;
+    const dx = p.x - current.x;
+    const dz = p.z - current.z;
+    const angle = angleBetween(look.x, look.z, dx, dz);
+    if (angle > 0.9) continue;
+    const score = Math.hypot(dx, dz) * (1 + angle);
+    if (score < bestScore) { bestScore = score; best = p; }
+  }
+  return best;
+};
+
+/** Ngữ cảnh phá bóng (D hoặc S khi bóng bổng/tạt tới gần người đang điều khiển). */
+export const clearanceChance = (match) => {
+  const me = match.players[match.user.controlledId];
+  const { ball } = match;
+  if (!me || ball.owner !== null) return false;
+  const near = dist(me, ball) < 3.2;
+  const incoming = ball.pass && match.players[ball.pass.from].team !== me.team && (ball.pass.kind === "lob" || ball.y > 1) && dist(me, ball.pass.target) < 5;
+  return near || Boolean(incoming);
+};
+
 const takeSetPiece = (match, action, opts) => {
   const sp = match.setPiece;
-  const taker = match.players[sp.takerId];
-  if (sp.t < sp.ready) return false;
+  // Bấm sớm khi cầu thủ còn đang vào vị trí: nhớ lệnh, thực hiện ngay khi sẵn sàng.
+  if (sp.t < sp.ready) { sp.queued = { action, opts }; return true; }
+  // E (FO4) ở đá phạt/penalty: đổi người sút. C: gọi người thứ hai đứng cạnh bóng.
+  if (action === "cycleTaker" && (sp.type === "freekick" || sp.type === "penalty")) { cycleTaker(match); return true; }
+  if (action === "callSecond" && sp.type !== "penalty") { callSecond(match); return true; }
   const aim = opts.aim && len(opts.aim.x, opts.aim.z) > 0.2 ? opts.aim : null;
   const power = clamp(opts.power ?? 0.5, 0, 1);
+  // C + D ở đá phạt: người thứ hai sút.
+  let taker = match.players[sp.takerId];
+  if (opts.second && sp.secondId !== undefined && match.players[sp.secondId]) {
+    taker = match.players[sp.secondId];
+    match.ball.owner = taker.id;
+    setControlled(match, taker.id);
+  }
+  if (sp.type === "freekick" && sp.team === match.user.team && SHOTS.has(action) && match.rng() < 0.5) sp.wallJump = true;
   match.setPiece = null;
   match.phase = "play";
   taker.state = "run";
+  const goal = attackGoal(match, taker.team);
   if (sp.type === "throw") {
-    const kind = "throw";
-    const receiver = choosePassTarget(match, taker, aim, kind, action === "lob" ? 1 : action === "through" ? 0.7 : power * 0.6);
-    passBall(match, taker, { kind, receiver, power: action === "lob" ? 1 : 0.5, aim, setPiece: "throw" });
+    // S/D ném gần, A ném xa, W ném nhanh cho đồng đội băng lên.
+    const far = action === "lob" || action === "lofted";
+    const receiver = choosePassTarget(match, taker, aim, "throw", far ? 1 : action === "through" ? 0.7 : power * 0.6);
+    passBall(match, taker, { kind: "throw", receiver, power: far ? 1 : 0.5, aim, setPiece: "throw", style: far ? "longThrow" : null });
     if (action === "through" && receiver) receiver.runTo = { x: receiver.x + forward(match, taker.team, 1) * 6, z: receiver.z, until: match.time + 1.5 };
   } else if (sp.type === "goalkick") {
-    if (action === "lob" || action === "through") keeperDistribute(match, taker, "long");
+    if (action === "lob" || action === "through" || action === "shoot" || action === "lofted" || action === "power") keeperDistribute(match, taker, "long");
     else keeperDistribute(match, taker, "short");
   } else if (sp.type === "penalty") {
-    shootBall(match, taker, { power: action === "shoot" ? power : 0.7, kind: action === "chip" ? "chip" : action === "finesse" ? "finesse" : "normal", aim: aim || { x: 0, z: (match.rng() - 0.5) * 2 } });
+    const kind = action === "chip" ? "chip" : action === "finesse" ? "finesse" : action === "low" ? "low" : action === "power" ? "power" : "normal";
+    shootBall(match, taker, { power: SHOTS.has(action) ? power : 0.7, kind, aim: aim || { x: 0, z: (match.rng() - 0.5) * 2 } });
     penaltyKeeper(match, taker);
-  } else if (action === "shoot" || action === "finesse" || action === "chip" || action === "low") {
-    shootBall(match, taker, { power, kind: action === "shoot" ? (sp.type === "freekick" ? "finesse" : "normal") : action, aim });
-  } else if (sp.type === "corner" && action === "lob") {
-    const goal = attackGoal(match, taker.team);
-    const zone = aim ? (Math.abs(aim.z) > 0.3 ? Math.sign(aim.z) : 0) : 0;
-    const spot = { x: goal.x - Math.sign(goal.x) * (zone === 0 ? 10 : 6), z: zone * 3.5 * (sp.z < 0 ? -1 : 1) * -1 };
-    const mates = teamOf(match, taker.team).filter((p) => p !== taker && p.role !== "GK");
-    const receiver = mates.sort((a, b) => dist(a, spot) - dist(b, spot))[0];
-    passBall(match, taker, { kind: "lob", receiver, power: 0.75, setPiece: "corner" });
+  } else if (SHOTS.has(action)) {
+    const kind = action === "shoot" ? (sp.type === "freekick" ? "finesse" : "normal") : action === "chip" && sp.type === "freekick" ? "power" : action;
+    const curlSide = sp.type === "freekick" && aim && Math.abs(aim.z) > 0.3 ? Math.sign(aim.z) * Math.sign(goal.x) : 0;
+    shootBall(match, taker, { power, kind, aim: sp.type === "freekick" ? { x: 0, z: aim ? aim.z : 0 } : aim, curlSide });
+    for (const p of match.players) if (p.inWall) { p.wallUntil = match.time + 1.6; if (sp.wallJump) { p.jumpUntil = match.time + 0.9; p.anim.header = 1; } }
+  } else if (sp.type === "corner" && action !== "short") {
+    // Phạt góc (FO4): A tạt mạnh, A A tạt vừa, A A A tạt sệt; ↑/↓ chọn cột gần/xa.
+    const taps = opts.taps || 1;
+    const side = sp.z < 0 ? -1 : 1;
+    const zone = aim && Math.abs(aim.z) > 0.3 ? (Math.sign(aim.z) === side ? "near" : "far") : "middle";
+    const depth = taps >= 3 ? 6 : zone === "middle" ? 10 : 6.5;
+    const spot = { x: goal.x - Math.sign(goal.x) * depth, z: zone === "near" ? side * 3 : zone === "far" ? -side * 3.5 : 0 };
+    const receiver = boxTarget(match, taker, spot);
+    const style = taps >= 3 ? "lowCross" : taps === 2 ? null : "lofted";
+    if (receiver) passBall(match, taker, { kind: taps >= 3 ? "short" : "lob", receiver, power: taps >= 3 ? 0.9 : 0.75, setPiece: "corner", style: taps >= 3 ? "driven" : style });
+    else passBall(match, taker, { kind: "lob", aim: { x: spot.x - taker.x, z: spot.z - taker.z }, power: 0.75, setPiece: "corner" });
   } else {
-    const kind = action === "lob" ? "lob" : action === "through" ? "through" : action === "lobThrough" ? "lobThrough" : "short";
+    const { kind, style } = passKindOf(action);
     // Giao bóng không bấm hướng: chuyền về cho tiền vệ gần nhất.
     const receiver = sp.type === "kickoff" && !aim ? teamOf(match, taker.team).filter((p) => p !== taker && p.role !== "GK").sort((a, b) => dist(a, taker) - dist(b, taker))[0] : undefined;
-    passBall(match, taker, { kind, power, aim, receiver, setPiece: sp.type });
+    passBall(match, taker, { kind, style, power, aim, receiver, setPiece: sp.type });
   }
   if (sp.team === match.user.team) switchToReceiver(match);
-  for (const p of match.players) p.inWall = false;
+  for (const p of match.players) if (!p.wallUntil || p.wallUntil < match.time) p.inWall = false;
   return true;
 };
 
-/** Thủ môn đoán hướng khi bị sút phạt đền. */
+/** E ở đá phạt/penalty: đổi sang người sút khác (lần lượt những người sút tốt nhất). */
+const cycleTaker = (match) => {
+  const sp = match.setPiece;
+  const current = match.players[sp.takerId];
+  const options = teamOf(match, sp.team).filter((p) => p.role !== "GK").sort((a, b) => b.attrs.shoot - a.attrs.shoot).slice(0, 4);
+  const next = options[(options.indexOf(current) + 1) % options.length];
+  if (!next || next === current) return;
+  const spot = { x: current.x, z: current.z, heading: current.heading };
+  const base = shapeTarget(match, current, true);
+  place(current, next.x, next.z, match.ball);
+  if (dist(current, match.ball) < 3) place(current, base.x, base.z, match.ball);
+  place(next, spot.x, spot.z, match.ball);
+  next.heading = spot.heading;
+  sp.takerId = next.id;
+  match.ball.owner = next.id;
+  if (sp.team === match.user.team) setControlled(match, next.id);
+  emit(match, "taker", { id: next.id });
+};
+
+/** C ở đá phạt/phạt góc: gọi một đồng đội đứng cạnh bóng (để chuyền ngắn hoặc C+D cho người này sút). */
+const callSecond = (match) => {
+  const sp = match.setPiece;
+  const taker = match.players[sp.takerId];
+  const goal = attackGoal(match, sp.team);
+  const helper = teamOf(match, sp.team).filter((p) => p !== taker && p.role !== "GK" && !p.inWall).sort((a, b) => b.attrs.shoot - a.attrs.shoot)[0];
+  if (!helper) return;
+  const toGoal = norm(goal.x - match.ball.x, goal.z - match.ball.z);
+  const across = { x: -toGoal.z, z: toGoal.x };
+  place(helper, match.ball.x + across.x * 1.6 - toGoal.x * 0.8, match.ball.z + across.z * 1.6 - toGoal.z * 0.8, goal);
+  sp.secondId = helper.id;
+  emit(match, "second", { id: helper.id });
+};
+
+/** Thủ môn đoán hướng khi bị sút phạt đền. Người chơi bắt penalty: D/Ctrl + hướng để chọn bên bay người. */
 const penaltyKeeper = (match, taker) => {
   const keeper = keeperOf(match, 1 - taker.team);
   if (!keeper) return;
   const { ball } = match;
   const t = (keeper.x - ball.x) / (ball.vx || 1);
   const zAt = ball.z + ball.vz * t;
-  const guess = match.rng() < 0.55 ? Math.sign(zAt) || 1 : (match.rng() < 0.5 ? -1 : 1);
-  const right = guess === (Math.sign(zAt) || 1);
+  const userGuess = keeper.team === match.user.team && match.user.keeperGuess ? match.user.keeperGuess : null;
+  match.user.keeperGuess = null;
+  const guess = userGuess ? userGuess.side : match.rng() < 0.55 ? Math.sign(zAt) || 1 : (match.rng() < 0.5 ? -1 : 1);
+  const right = guess === 0 ? Math.abs(zAt) < 1 : guess === (Math.sign(zAt) || 1);
   const yAt = ball.y + ball.vy * t - 0.5 * PHYSICS.gravity * t * t;
   const reachable = Math.abs(zAt) < 2.9 && yAt < 2.1;
   const success = right && reachable && match.rng() < 0.55 + (keeper.attrs.keeper - 80) * 0.01 - Math.max(0, Math.hypot(ball.vx, ball.vz) - 24) * 0.03;
   keeper.state = "dive";
   keeper.stateT = Math.max(0.6, t + 0.5);
-  keeper.dive = { z: right ? zAt : guess * 2.2, y: Math.max(0.3, yAt), side: guess, success, at: match.time + t, from: { x: keeper.x, z: keeper.z } };
+  keeper.dive = { z: right ? zAt : guess * 2.2, y: Math.max(0.3, yAt), side: guess || 1, success, at: match.time + t, from: { x: keeper.x, z: keeper.z } };
   emit(match, "dive", { id: keeper.id });
 };
 
+/** Phòng ngự đá phạt: W hàng rào nhảy lên, C/E dịch hàng rào sang hai bên. */
+const wallControl = (match, action) => {
+  const sp = match.setPiece;
+  const wall = match.players.filter((p) => p.inWall);
+  if (!wall.length) return false;
+  if (action === "wallJump") { sp.wallJump = true; emit(match, "wallJump"); return true; }
+  const goal = ownGoal(match, match.user.team);
+  const toGoal = norm(goal.x - sp.x, goal.z - sp.z);
+  const across = { x: -toGoal.z, z: toGoal.x };
+  const step = action === "wallLeft" ? -0.5 : 0.5;
+  for (const p of wall) { p.x += across.x * step; p.z += across.z * step; p.goal = { x: p.x, z: p.z, face: match.ball }; }
+  return true;
+};
+
 /**
- * Hành động của người chơi. Phím FO4: S chuyền ngắn, W chọc khe, A chuyền bổng/tạt,
- * D sút, Q+W chọc khe bổng, Z+D sút xoáy, Q+D bấm bóng, D+D sút sệt, Z giật bóng.
- * Phòng ngự: Q đổi người, Space tắc bóng, S xoạc bóng, W thủ môn lao ra.
+ * Hành động của người chơi (tên hành động, không phải tên phím; controls.js đổi phím FO4 → hành động).
  */
 export const act = (match, action, opts = {}) => {
   if (match.phase === "fulltime" || match.phase === "halftime" || match.phase === "goal") return false;
   const p = match.players[match.user.controlledId];
+  if (action === "mentality") {
+    // [ và ] (FO4): giảm/tăng nhịp độ tấn công – phòng ngự của cả đội.
+    const team = match.teams[match.user.team];
+    team.mentality = clamp((team.mentality || 0) + Math.sign(opts.delta || 0), -2, 2);
+    emit(match, "mentality", { value: team.mentality });
+    return true;
+  }
   if (match.setPiece) {
-    if (match.setPiece.team !== match.user.team) return false;
+    if (match.setPiece.team !== match.user.team) {
+      if (action === "wallJump" || action === "wallLeft" || action === "wallRight") return wallControl(match, action);
+      if (action === "keeperGuess" && match.setPiece.type === "penalty") {
+        const aim = opts.aim || { x: 0, z: 0 };
+        const goal = ownGoal(match, match.user.team);
+        // Hướng bay người tính theo màn hình: z của mũi tên.
+        match.user.keeperGuess = { side: Math.abs(aim.z) > 0.3 ? Math.sign(aim.z) : 0, high: aim.x * Math.sign(goal.x) > 0.3 };
+        return true;
+      }
+      return false;
+    }
     return takeSetPiece(match, action, opts);
   }
   if (action === "switch") {
     const next = bestSwitch(match);
+    if (next) setControlled(match, next.id);
+    return Boolean(next);
+  }
+  if (action === "switchDir") {
+    const next = switchToward(match, opts.aim);
     if (next) setControlled(match, next.id);
     return Boolean(next);
   }
@@ -1040,14 +1366,15 @@ export const act = (match, action, opts = {}) => {
   }
   if (action === "tackle") { standingTackle(match, p); return true; }
   if (action === "slide") { startSlide(match, p); return true; }
+  if (action === "clear") {
+    // D hoặc S khi bóng bổng tới: phá bóng (đánh đầu phá nếu bóng cao).
+    if (match.ball.owner === null && dist(p, match.ball) < 1.5 && match.ball.y < 1.2 && match.time >= p.cooldown) { clearBall(match, p); return true; }
+    match.user.buffer = { action: "clear", opts, until: match.time + 0.9 };
+    return true;
+  }
   // Bấm trước khi bóng tới: chạm một chạm (chuyền/sút ngay khi nhận bóng).
-  if (["short", "through", "lob", "lobThrough", "shoot", "finesse", "chip", "low"].includes(action)) {
+  if (PASSES.has(action) || SHOTS.has(action)) {
     match.user.buffer = { action, opts, until: match.time + 0.7 };
-    // Không có bóng và không ai chuyền tới: S/A là phá bóng nếu bóng ở sát chân.
-    if (!match.ball.pass && match.ball.owner === null && dist(p, match.ball) < 1.4 && match.ball.y < 1) {
-      match.user.buffer = null;
-      if (dist(p, ownGoal(match, p.team)) < 30 && (action === "lob" || action === "shoot")) { clearBall(match, p); return true; }
-    }
     return true;
   }
   return false;
@@ -1083,6 +1410,12 @@ const setPieceStep = (match, dt) => {
       const base = shapeTarget(match, p, p.team === sp.team);
       p.goal = { x: base.x, z: base.z, sprint: false, face: match.ball };
     }
+  }
+  if (sp.queued && sp.t >= sp.ready) {
+    const { action, opts } = sp.queued;
+    sp.queued = null;
+    takeSetPiece(match, action, opts);
+    return;
   }
   if (sp.t >= sp.auto || (match.user.auto && sp.t >= 1.3)) {
     if (sp.team === humanTeam(match)) {

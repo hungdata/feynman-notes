@@ -113,8 +113,17 @@ const keepInside = (point, margin = 1.5) => ({ x: clamp(point.x, -FIELD.halfL + 
  * Chuyền bóng. kind: short (S), through (W), lob (A, tạt nếu ở biên), lobThrough (Q+W), throw (ném biên).
  * Trả về người nhận, hoặc null nếu phải chuyền vào khoảng trống.
  */
-export const passBall = (match, passer, { kind = "short", power = 0.45, aim = null, receiver = null, setPiece = null } = {}) => {
-  const target = receiver || choosePassTarget(match, passer, aim, kind, power);
+/** Đồng đội đứng trong vòng cấm đối phương gần điểm tạt nhất (cho tạt nhanh Q+A, phạt góc). */
+export const boxTarget = (match, passer, spot = null) => {
+  const goal = attackGoal(match, passer.team);
+  const point = spot || { x: goal.x - Math.sign(goal.x) * 9, z: 0 };
+  return teamOf(match, passer.team)
+    .filter((p) => p.id !== passer.id && p.role !== "GK" && Math.abs(p.x - goal.x) < FIELD.boxDepth + 4)
+    .sort((a, b) => dist(a, point) - dist(b, point))[0] || null;
+};
+
+export const passBall = (match, passer, { kind = "short", power = 0.45, aim = null, receiver = null, setPiece = null, style = null } = {}) => {
+  const target = receiver || (style === "earlyCross" ? boxTarget(match, passer) : null) || choosePassTarget(match, passer, aim, kind, power);
   const look = aim && len(aim.x, aim.z) > 0.2 ? norm(aim.x, aim.z) : facing(passer.heading);
   const skill = passer.attrs.pass / 100;
   const pressure = pressureOn(match, passer);
@@ -148,22 +157,25 @@ export const passBall = (match, passer, { kind = "short", power = 0.45, aim = nu
       const a = PHYSICS.rolling;
       const vEnd = clamp((d - (a * runTime * runTime) / 2) / Math.max(0.3, runTime), 1.2, 9);
       speed = Math.sqrt(vEnd * vEnd + 2 * a * d);
-    } else speed = groundSpeed(d, 5 + power * 3.5);
-    speed = clamp(speed * (1 + gaussian(match.rng) * (1.1 - skill) * 0.06), 7, 31);
+    } else speed = groundSpeed(d, style === "driven" ? 10 + power * 4 : 5 + power * 3.5);
+    if (style === "quick") speed *= 1.15;
+    speed = clamp(speed * (1 + gaussian(match.rng) * (1.1 - skill) * 0.06), 7, 33);
     launchGround(match, passer, direction, speed);
   } else {
-    const flight = kind === "throw" ? 0.55 + d * 0.028 : kind === "lobThrough" ? 0.85 + d * 0.03 : 0.72 + d * 0.026;
+    // Z+A bổng cao, A A tạt thấp, Q+A tạt nhanh (căng, quỹ đạo thấp).
+    const arc = style === "lofted" ? 1.0 + d * 0.04 : style === "lowCross" ? 0.45 + d * 0.017 : style === "earlyCross" ? 0.55 + d * 0.02 : 0.72 + d * 0.026;
+    const flight = kind === "throw" ? (style === "longThrow" ? 0.8 + d * 0.03 : 0.55 + d * 0.028) : kind === "lobThrough" ? 0.85 + d * 0.03 : arc;
     const landing = { x: match.ball.x + direction.x * d * 0.97, z: match.ball.z + direction.z * d * 0.97 };
     // Tạt vào vòng cấm: bóng tới ngang đầu. Chuyền dài thường: bóng rơi xuống chân.
     const goal = attackGoal(match, passer.team);
     const cross = kind === "lob" && target && Math.abs(destination.x - goal.x) < FIELD.boxDepth + 2 && Math.abs(destination.z) < FIELD.boxHalf;
-    launchAir(match, landing, flight, cross ? 1.4 : FIELD.ballRadius);
+    launchAir(match, landing, flight, cross ? (style === "lowCross" ? 0.7 : 1.4) : FIELD.ballRadius);
   }
-  match.ball.pass = { from: passer.id, to: receiverId, kind, target: destination, time: match.time };
+  match.ball.pass = { from: passer.id, to: receiverId, kind, style, target: destination, time: match.time };
   match.ball.offside = offside;
   match.teams[passer.team].stats.passes += 1;
   if (target) target.expect = { x: destination.x, z: destination.z, until: match.time + 4 };
-  emit(match, "pass", { id: passer.id, to: receiverId, kind });
+  emit(match, "pass", { id: passer.id, to: receiverId, kind, style, speed: Math.hypot(match.ball.vx, match.ball.vz), lift: match.ball.vy });
   return target;
 };
 
@@ -171,7 +183,7 @@ export const passBall = (match, passer, { kind = "short", power = 0.45, aim = nu
  * Sút bóng. kind: normal (D), low (D+D sút sệt), finesse (Z+D sút xoáy), chip (Q+D bấm bóng), header.
  * `aim` là hướng phím lúc sút, dùng để chọn góc khung thành.
  */
-export const shootBall = (match, shooter, { power = 0.7, kind = "normal", aim = null } = {}) => {
+export const shootBall = (match, shooter, { power = 0.7, kind = "normal", aim = null, curlSide = 0 } = {}) => {
   const goal = attackGoal(match, shooter.team);
   const start = ballStart(match);
   const skill = shooter.attrs.shoot / 100;
@@ -184,10 +196,10 @@ export const shootBall = (match, shooter, { power = 0.7, kind = "normal", aim = 
   if (aim && Math.abs(aim.z) > 0.25) aimZ = Math.sign(aim.z) * (2.15 + Math.min(0.9, Math.abs(aim.z) * 0.6));
   else if (Math.abs(start.z) > 1.5) aimZ = -Math.sign(start.z) * (1.7 + match.rng() * 1.1);
   else aimZ = (match.rng() < 0.5 ? -1 : 1) * (1.6 + match.rng() * 1.1);
-  let aimY = kind === "low" ? 0.2 : kind === "finesse" ? 1.15 : kind === "header" ? 0.45 + power * 0.9 : 0.3 + power * 1.45;
+  let aimY = kind === "low" ? 0.2 : kind === "power" ? 0.5 + power * 0.9 : kind === "finesse" ? 1.15 : kind === "header" ? 0.45 + power * 0.9 : 0.3 + power * 1.45;
   if (aim && aim.x * side < -0.6 && kind === "normal") aimY = Math.max(aimY, 1.7); // ghìm phím lùi: nâng bóng
 
-  const spreadZ = (1.4 - skill) * (0.55 + d / 14) * (1 + pressure * 0.7) * (shooter.sprint ? 1.2 : 1) * (kind === "finesse" ? 0.72 : kind === "header" ? 1.5 : 1);
+  const spreadZ = (1.4 - skill) * (0.55 + d / 14) * (1 + pressure * 0.7) * (shooter.sprint ? 1.2 : 1) * (kind === "finesse" ? 0.72 : kind === "header" ? 1.5 : kind === "power" ? 1.3 : 1);
   let tz = aimZ + gaussian(match.rng) * spreadZ;
   let ty = Math.max(0.12, aimY + gaussian(match.rng) * spreadZ * 0.45);
   if (power > 0.82 && kind !== "chip") ty += (power - 0.82) * 9 * (1.35 - skill); // quá lực: bóng bay vọt xà
@@ -204,7 +216,7 @@ export const shootBall = (match, shooter, { power = 0.7, kind = "normal", aim = 
     // Bóng bấm rơi sau thủ môn rồi lăn vào lưới.
     ball.vx *= 1.05; ball.vz *= 1.05;
   } else {
-    const speed = kind === "header" ? 10 + power * 7 : (16 + power * 16 + (shooter.attrs.shoot - 75) * 0.06) * (kind === "low" ? 0.92 : kind === "finesse" ? 0.78 : 1);
+    const speed = kind === "header" ? 10 + power * 7 : (16 + power * 16 + (shooter.attrs.shoot - 75) * 0.06) * (kind === "low" ? 0.92 : kind === "finesse" ? 0.78 : kind === "power" ? 1.16 : 1);
     const dx = tx - start.x;
     const dz = tz - start.z;
     const horizontal = Math.hypot(dx, dz);
@@ -213,7 +225,8 @@ export const shootBall = (match, shooter, { power = 0.7, kind = "normal", aim = 
     let dirZ = dz / horizontal;
     if (kind === "finesse") {
       // Bóng đi vòng: nhắm lệch ra ngoài, xoáy kéo bóng về góc chết.
-      const curl = -Math.sign(tz - start.z || 1) * 7;
+      // Đá phạt D + hướng: bóng xoáy về phía mũi tên (curlSide), mặc định xoáy vào góc chết.
+      const curl = (curlSide ? curlSide : -Math.sign(tz - start.z || 1)) * 7;
       const sideways = { x: -dirZ, z: dirX };
       const drift = 0.5 * curl * time * time;
       const aimed = norm(dx - sideways.x * drift, dz - sideways.z * drift);

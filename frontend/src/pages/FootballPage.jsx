@@ -4,8 +4,8 @@ import { ArrowLeft, Gamepad2, Keyboard, Pause, Play, RotateCcw, Video, Volume2, 
 import "@fontsource-variable/lexend";
 import "../styles/football.css";
 import { DIFFICULTIES, FIELD, FORMATIONS, KITS, ROLE_NAMES, TEAM_PRESETS } from "../football/constants";
-import { clockText, createMatch, drainEvents, possessionShare, startSecondHalf, stepMatch, userAttacking } from "../football/sim";
-import { createController, keyName, padKey } from "../football/controls";
+import { clockText, createMatch, drainEvents, possessionShare, startSecondHalf, stepMatch, userContext } from "../football/sim";
+import { createController, keyName, padKey, touchButtons } from "../football/controls";
 import { netSwish, roar, startCrowd, stopCrowd, thud, whistle } from "../football/audio";
 import { isSoundOn, setSoundOn } from "../learn/sound";
 
@@ -33,22 +33,23 @@ const BANNERS = {
   save: "Cứu thua!",
 };
 
-/** Gợi ý phím theo tình huống, hiện dưới màn hình. */
-const hintFor = (match) => {
-  if (!match) return "";
-  const sp = match.setPiece;
-  if (sp && sp.team === match.user.team) {
-    if (sp.type === "kickoff") return "Giao bóng: S chuyền ngắn · ←↑↓→ chọn hướng";
-    if (sp.type === "corner") return "Phạt góc: A tạt bóng (↑/↓ chọn cột gần/xa) · S chuyền ngắn";
-    if (sp.type === "throw") return "Ném biên: S ném gần · A ném xa · W ném cho đồng đội băng lên";
-    if (sp.type === "goalkick") return "Phát bóng: S phát ngắn cho hậu vệ · A phát dài";
-    if (sp.type === "penalty") return "Phạt đền: ↑/↓ chọn góc · giữ D lấy lực rồi thả (đừng quá lực!) · Z+D sút xoáy · Q+D bấm bóng";
-    if (sp.type === "freekick") return "Đá phạt: D sút (mặc định sút xoáy) · S/A chuyền · ←↑↓→ chọn hướng";
-  }
-  if (sp) return "Đối thủ đang thực hiện tình huống cố định…";
-  if (userAttacking(match)) return "S chuyền · W chọc khe · A bổng/tạt · D sút · E tăng tốc · C che bóng · Z+D sút xoáy · Q+D bấm bóng";
-  return "Q đổi người · giữ D áp sát · Space tắc · S xoạc · giữ A gọi đồng đội áp sát · W thủ môn lao ra";
+/** Gợi ý phím FO4 theo ngữ cảnh, hiện ở góc dưới màn hình. */
+const HINTS = {
+  ball: "S chuyền · W chọc khe · A chuyền dài/tạt · D sút · E tăng tốc · C che bóng · Q dừng bóng · Z+D sút xoáy · Q+D bấm bóng · C+D sút căng · Q+S rồi S bật tường",
+  support: "Bóng đang tới: bấm trước S/W/A/D để đá một chạm",
+  defense: "S đổi người · giữ D áp sát · C kèm người (E+C kèm chặt) · Space tắc · giữ Space tì vai · A xoạc · giữ Q gọi đồng đội · Z dâng đội hình · W thủ môn ra",
+  keeper: "Thủ môn ôm bóng: S ném ngắn · giữ S ném xa · Z+S ném thấp · A/D phát dài · W thả bóng xuống chân",
+  "sp:kickoff": "Giao bóng: S chuyền ngắn · ←↑↓→ chọn hướng",
+  "sp:corner": "Phạt góc: A tạt mạnh · A A tạt vừa · A A A tạt sệt · ↑/↓ chọn cột · S chuyền ngắn · C gọi người gần",
+  "sp:throw": "Ném biên: S hoặc D ném gần · A ném xa · W ném nhanh · C gọi người",
+  "sp:goalkick": "Phát bóng: S phát ngắn · A hoặc D phát dài",
+  "sp:freekick": "Đá phạt: D sút (giữ ←/→ để xoáy theo hướng) · Q+D sút căng · Z+D sút sệt · E đổi người sút · C gọi người 2, C+D người 2 sút · S/A/W chuyền",
+  "sp:penalty": "Penalty: ←↑↓→ chỉnh hướng · giữ D lấy lực rồi thả · Q+D bấm bóng · Z+D sút xoáy · E đổi người sút",
+  "def:freekick": "Đối thủ đá phạt: W hàng rào nhảy · C/E dịch hàng rào · Z dâng hàng thủ",
+  "def:penalty": "Bắt penalty: giữ ←↑↓→ rồi bấm D (hoặc Ctrl) để thủ môn bay về hướng đó",
 };
+const MENTALITY = ["Phòng ngự sâu", "Phòng ngự", "Cân bằng", "Tấn công", "Tấn công tổng lực"];
+const hintFor = (context) => HINTS[context] || (context?.startsWith("def:") ? "Đối thủ đang thực hiện tình huống cố định…" : "");
 
 /* ---------- radar thu nhỏ ---------- */
 
@@ -96,38 +97,45 @@ const drawRadar = (canvas, match) => {
 
 /* ---------- các màn hình phụ ---------- */
 
+const KeyList = ({ rows }) => <dl>{rows.map(([key, label]) => <div key={key + label} className="fb-key-row"><dt>{key}</dt><dd>{label}</dd></div>)}</dl>;
+
 const ControlsSheet = () => (
   <div className="fb-controls-sheet">
     <section>
-      <h3><Keyboard size={16} /> Tấn công</h3>
-      <dl>
-        <dt>← ↑ ↓ →</dt><dd>Di chuyển</dd>
-        <dt>S</dt><dd>Chuyền ngắn (giữ lâu: chuyền xa hơn)</dd>
-        <dt>W</dt><dd>Chọc khe</dd>
-        <dt>A</dt><dd>Chuyền bổng / tạt bóng</dd>
-        <dt>D</dt><dd>Sút (giữ để lấy lực)</dd>
-        <dt>D, D</dt><dd>Sút sệt</dd>
-        <dt>Z + D</dt><dd>Sút xoáy (ZD)</dd>
-        <dt>Q + D</dt><dd>Bấm bóng qua thủ môn</dd>
-        <dt>Q + W</dt><dd>Chọc khe bổng</dd>
-        <dt>E / Shift</dt><dd>Tăng tốc</dd>
-        <dt>C</dt><dd>Che bóng</dd>
-        <dt>Z (chạm nhanh)</dt><dd>Giật bóng theo hướng</dd>
-      </dl>
+      <h3><Keyboard size={16} /> Có bóng</h3>
+      <KeyList rows={[
+        ["← ↑ ↓ →", "Di chuyển"], ["E", "Tăng tốc"], ["C", "Che bóng"], ["Q", "Dừng bóng, quan sát"],
+        ["S", "Chuyền ngắn (giữ lâu: xa hơn)"], ["Z + S", "Chuyền mạnh tầm thấp"], ["C + S", "Chuyền bất ngờ"], ["Q + S, rồi S", "Bật tường"],
+        ["A", "Chuyền dài / tạt"], ["Z + A", "Chuyền bổng"], ["A, A", "Tạt bóng tầm thấp"], ["Q + A", "Tạt nhanh"],
+        ["W", "Chọc khe"], ["Q + W", "Chọc khe bổng"], ["Z + W", "Bật tường"],
+        ["D", "Sút (giữ để lấy lực)"], ["D, D", "Sút sệt"], ["Z + D", "Sút xoáy (cứa lòng)"], ["Q + D", "Bấm bóng qua thủ môn"], ["C + D", "Sút căng bất ngờ"],
+        ["S + D + hướng", "Giả sút"], ["S + A + hướng", "Giả chuyền"], ["Ctrl + hướng", "Đẩy bóng dài"], ["Shift + hướng", "Lách người"], ["Z + hướng", "Giật bóng"],
+      ]} />
     </section>
     <section>
       <h3><Keyboard size={16} /> Phòng ngự</h3>
-      <dl>
-        <dt>Q</dt><dd>Đổi người</dd>
-        <dt>Giữ D</dt><dd>Áp sát người cầm bóng</dd>
-        <dt>Giữ A</dt><dd>Gọi đồng đội áp sát</dd>
-        <dt>Space</dt><dd>Tắc bóng</dd>
-        <dt>S</dt><dd>Xoạc bóng (dễ phạm lỗi từ phía sau)</dd>
-        <dt>W</dt><dd>Thủ môn lao ra</dd>
-        <dt>Esc / P</dt><dd>Tạm dừng</dd>
-      </dl>
+      <KeyList rows={[
+        ["S", "Đổi cầu thủ"], ["Shift + hướng", "Đổi người theo hướng"], ["Giữ D", "Áp sát"], ["C", "Kèm người (không lao vào)"], ["E + C", "Kèm chặt khi đối thủ bứt tốc"], ["C + hướng", "Tranh chấp bóng"],
+        ["Space", "Tắc bóng"], ["Giữ Space", "Tì vai, đẩy người"], ["A", "Xoạc bóng"], ["Giữ Q", "Gọi đồng đội áp sát"], ["D hoặc S", "Phá bóng (bóng bổng tới)"],
+        ["E", "Tăng tốc"], ["Z", "Dâng đội hình"], ["W", "Thủ môn lao ra"],
+      ]} />
+      <h3><Keyboard size={16} /> Thủ môn ôm bóng</h3>
+      <KeyList rows={[["W", "Thả bóng xuống chân"], ["S", "Ném ngắn"], ["Giữ S", "Ném xa"], ["Z + S", "Ném thấp"], ["A / D", "Phát bóng dài"]]} />
+    </section>
+    <section>
+      <h3><Keyboard size={16} /> Tình huống cố định</h3>
+      <KeyList rows={[
+        ["Phạt góc", "A tạt mạnh · A A vừa · A A A sệt · S chuyền ngắn · C gọi người"],
+        ["Ném biên", "S / D ném gần · A ném xa · W ném nhanh"],
+        ["Đá phạt", "D sút (+←/→ xoáy) · Q+D căng · Z+D sệt · E đổi người sút · C người 2, C+D người 2 sút"],
+        ["Rào chắn", "W nhảy · C / E dịch hàng rào"],
+        ["Penalty", "Hướng + D sút · Q+D bấm bóng · E đổi người sút"],
+        ["Bắt penalty", "Giữ hướng + D (hoặc Ctrl)"],
+      ]} />
+      <h3><Keyboard size={16} /> Chung</h3>
+      <KeyList rows={[["[  /  ]", "Giảm / tăng nhịp độ tấn công"], ["Backspace", "Ẩn/hiện vòng dưới chân"], ["Esc / P", "Tạm dừng"], ["Alt + Enter", "Toàn màn hình"]]} />
       <h3><Gamepad2 size={16} /> Tay cầm</h3>
-      <p>A chuyền · X sút · B bổng · Y chọc khe · RT tăng tốc · LB đổi người · RB sút xoáy. Phòng ngự: A áp sát · B tắc · X xoạc.</p>
+      <p>Có bóng: A chuyền · B bổng · X sút · Y chọc khe · LB (Q) · RB (Z) · LT che bóng · RT tăng tốc. Phòng ngự: LB đổi người · A áp sát · LT kèm · B tắc · X xoạc · RB gọi đồng đội · Y thủ môn ra.</p>
     </section>
   </div>
 );
@@ -146,7 +154,7 @@ const MatchMenu = ({ settings, setSettings, onStart, onDemo }) => {
         <header className="fb-menu-head">
           <Link className="fb-pill" to="/san-truong-3d"><ArrowLeft size={16} />Sân trường 3D</Link>
           <h1>Feynman Cup <span>Đá 11 người</span></h1>
-          <p>Bạn cầm cả đội 11 người như FIFA Online 4: điều khiển cầu thủ gần bóng nhất, chuyền là tự đổi sang người nhận, phòng ngự bấm Q để đổi người.</p>
+          <p>Bạn cầm cả đội 11 người như FIFA Online 4: điều khiển cầu thủ gần bóng nhất, chuyền là tự đổi sang người nhận, phòng ngự bấm S để đổi người.</p>
         </header>
         <div className="fb-versus">
           <div className="fb-crest" style={{ "--kit": home.shirt, "--trim": home.number }}><b>{TEAM_PRESETS.home.short}</b><span>{TEAM_PRESETS.home.name}</span></div>
@@ -202,13 +210,13 @@ const pollGamepad = (match, controller, now, padState, stickInUse, togglePause, 
   const [ax = 0, ay = 0] = pad.axes;
   const dead = (v) => (Math.abs(v) < 0.2 ? 0 : v);
   if (!pausedRef.current && !stickInUse) controller.setStick(dead(ax), -dead(ay));
-  const attacking = userAttacking(match);
+  const context = userContext(match);
   pad.buttons.forEach((button, index) => {
     const was = padState.get(index);
     if (button.pressed && !was) {
       if (index === 9) { togglePause(); padState.set(index, "pause"); return; }
       if (pausedRef.current) { padState.set(index, "none"); return; }
-      const key = padKey(index, attacking);
+      const key = padKey(index, context);
       padState.set(index, key || "none");
       if (key) controller.press(match, key, now);
     } else if (!button.pressed && was) {
@@ -242,7 +250,9 @@ const FootballPage = () => {
   const holderRef = useRef(null);
   const matchRef = useRef(null);
   const stadiumRef = useRef(null);
-  const controllerRef = useRef(createController());
+  const ringRef = useRef(true);
+  const [controller] = useState(() => createController());
+  const controllerRef = useRef(controller);
   const radarRef = useRef(null);
   const powerRef = useRef(null);
   const edgeRef = useRef(null);
@@ -298,6 +308,11 @@ const FootballPage = () => {
         case "corner": case "freekick": showBanner(BANNERS[event.type], "info", 1300); break;
         case "throw": case "goalkick": showBanner(BANNERS[event.type], "soft", 1000); break;
         case "kickoff": whistle(1); break;
+        case "mentality": showBanner(`Chiến thuật: ${MENTALITY[event.value + 2]}`, "soft", 1100); break;
+        case "oneTwo": showBanner("Bật tường!", "soft", 900); break;
+        case "block": thud(0.7); roar(0.4); break;
+        case "taker": showBanner(`Người sút: ${match.players[event.id].number} ${match.players[event.id].name}`, "soft", 1200); break;
+        case "wallJump": showBanner("Hàng rào nhảy!", "soft", 800); break;
         case "halftime": whistle(2, true); setReport(reportOf(match)); setScreen("halftime"); break;
         case "fulltime": whistle(3, true); setReport(reportOf(match)); setScreen("fulltime"); break;
         default: break;
@@ -341,7 +356,7 @@ const FootballPage = () => {
         last = now;
         pollGamepad(match, controller, now, padState.current, stickRef.current.id !== null, togglePause, pausedRef);
         const basis = stadium.basis();
-        const { charge } = pausedRef.current ? { charge: null } : controller.update(match, basis, now);
+        const { charge, context } = pausedRef.current ? { charge: null, context: userContext(match) } : controller.update(match, basis, now);
         if (!pausedRef.current) stepMatch(match, dt);
         handleEvents(match, stadium);
         stadium.render(pausedRef.current ? 0 : dt, { charging: Boolean(charge) });
@@ -383,8 +398,10 @@ const FootballPage = () => {
             number: controlled?.number,
             role: controlled ? ROLE_NAMES[controlled.role] : "",
             stamina: controlled?.stamina ?? 1,
-            attacking: userAttacking(match),
-            hint: hintFor(match),
+            attacking: context === "ball" || context === "support" || context === "keeper" || context.startsWith("sp:"),
+            context,
+            hint: hintFor(context),
+            mentality: match.teams[match.user.team].mentality,
             phase: match.phase,
           });
         }
@@ -414,7 +431,16 @@ const FootballPage = () => {
     if (screen === "menu") return undefined;
     const controller = controllerRef.current;
     const down = (event) => {
-      if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isTyping(event.target) || event.metaKey) return;
+      if (event.altKey) {
+        // Alt + Enter (FO4): bật/tắt toàn màn hình.
+        if (event.key === "Enter") {
+          event.preventDefault();
+          if (document.fullscreenElement) document.exitFullscreen?.();
+          else document.documentElement.requestFullscreen?.().catch(() => {});
+        }
+        return;
+      }
       if (event.key === "Escape" || event.key === "p" || event.key === "P") {
         if (!event.repeat && screen === "playing") togglePause();
         event.preventDefault();
@@ -424,13 +450,20 @@ const FootballPage = () => {
       if (!key) return;
       event.preventDefault();
       if (event.repeat || pausedRef.current) return;
-      controller.press(matchRef.current, key);
+      if (key === "Backspace") {
+        // Backspace (FO4): ẩn/hiện vòng tròn dưới chân cầu thủ.
+        ringRef.current = !ringRef.current;
+        stadiumRef.current?.setRing(ringRef.current);
+        return;
+      }
+      // Dùng thời điểm bấm thật của phím (event.timeStamp) để đo lực và bấm đúp chính xác.
+      controller.press(matchRef.current, key, event.timeStamp || performance.now());
     };
     const up = (event) => {
       if (pausedRef.current) return;
       const key = keyName(event);
       if (!key) return;
-      controller.release(matchRef.current, key);
+      controller.release(matchRef.current, key, event.timeStamp || performance.now());
     };
     const blur = () => controller.reset();
     window.addEventListener("keydown", down);
@@ -524,7 +557,7 @@ const FootballPage = () => {
       <canvas className="fb-radar" ref={radarRef} style={{ width: RADAR.w, height: RADAR.h }} aria-hidden="true" />
       {!demo && hud && <aside className="fb-player-card" aria-label="Cầu thủ đang điều khiển">
         <b>{hud.number}</b>
-        <div><strong>{hud.name}</strong><small>{hud.role} · {hud.attacking ? "Tấn công" : "Phòng ngự"}</small><i className="fb-stamina"><span style={{ width: `${Math.round(hud.stamina * 100)}%` }} /></i></div>
+        <div><strong>{hud.name}</strong><small>{hud.role} · {hud.attacking ? "Tấn công" : "Phòng ngự"} · <span className="fb-mentality" data-level={hud.mentality}>{MENTALITY[(hud.mentality ?? 0) + 2]}</span></small><i className="fb-stamina"><span style={{ width: `${Math.round(hud.stamina * 100)}%` }} /></i></div>
       </aside>}
       {!demo && hud && !touch && <p className="fb-hint">{hud.hint}</p>}
       {demo && <p className="fb-hint">Máy đang đá với máy. Bấm ⏸ rồi “Đá lại” để tự cầm đội.</p>}
@@ -534,8 +567,8 @@ const FootballPage = () => {
       {touch && !demo && <>
         <div className="fb-stick" onPointerDown={stickDown} onPointerMove={stickMove} onPointerUp={stickUp} onPointerCancel={stickUp} aria-label="Cần điều khiển" role="application"><span ref={knobRef} /></div>
         <div className="fb-buttons">
-          {(hud?.attacking ? [["D", "Sút"], ["S", "Chuyền"], ["W", "Chọc khe"], ["A", "Bổng"], ["E", "Tốc"], ["C", "Che"]] : [["D", "Áp sát"], ["S", "Xoạc"], ["Space", "Tắc"], ["Q", "Đổi"], ["E", "Tốc"], ["A", "Gọi"]]).map(([key, label]) => (
-            <button key={`${hud?.attacking}-${key}`} type="button" className={`fb-touch is-${key}`} onPointerDown={touchPress(key)} onPointerUp={touchRelease(key)} onPointerCancel={touchRelease(key)} onLostPointerCapture={touchRelease(key)} onContextMenu={(event) => event.preventDefault()}>{label}</button>
+          {touchButtons(hud?.context).map(([key, label]) => (
+            <button key={`${hud?.context}-${key}`} type="button" className={`fb-touch is-${key}`} onPointerDown={touchPress(key)} onPointerUp={touchRelease(key)} onPointerCancel={touchRelease(key)} onLostPointerCapture={touchRelease(key)} onContextMenu={(event) => event.preventDefault()}>{label}</button>
           ))}
         </div>
       </>}

@@ -59,7 +59,10 @@ export const shapeTarget = (match, player, attacking) => {
   const { ball } = match;
   const bx = forward(match, player.team, ball.x);
   const { depth, width } = player.slot;
-  const back = attacking ? clamp(bx * 0.55 - 12, -36, 15) : clamp(bx * 0.62 - 17, -43, 4);
+  // Chiến thuật [ ] (−2 phòng ngự sâu … +2 tấn công tổng lực) và Z giữ để dâng đội hình.
+  const team = match.teams[player.team];
+  const push = (team.mentality || 0) * 3.5 + (player.team === humanTeam(match) && match.input.pushUp ? 8 : 0);
+  const back = attacking ? clamp(bx * 0.55 - 12 + push, -36, 18) : clamp(bx * 0.62 - 17 + push, -43, 10);
   const front = attacking ? Math.min(46, back + 40) : back + 27;
   const t = (depth - 0.19) / 0.58;
   let fx = back + t * (front - back);
