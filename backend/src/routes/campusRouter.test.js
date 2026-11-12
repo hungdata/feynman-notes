@@ -93,6 +93,54 @@ test("campus requires a real guest/Google cookie, even when local notes work", a
   assert.equal((await call("POST", "/api/campus/action", { type: "join", sport: "football" }, cookie)).body.code, "CHARACTER_REQUIRED");
 });
 
+test("movement does not query storage per packet and cached profiles never bypass authentication", async (t) => {
+  const { call, guest, events, store, runtime } = await setup(t);
+  const original = store.campusProfiles.get.bind(store.campusProfiles);
+  let reads = 0;
+  store.campusProfiles.get = (...args) => { reads += 1; return original(...args); };
+  const cookie = await guest();
+  const saved = await call("PUT", "/api/campus/profile", { name: "Bạn Tiết Kiệm", gender: "female" }, cookie);
+  const stream = await events(cookie);
+  await stream.until((snapshot) => snapshot.players.some((player) => player.id === saved.body.profile.id));
+  for (let packet = 0; packet < 20; packet += 1) {
+    assert.equal((await call("POST", "/api/campus/input", { x: 0, z: 58, heading: 0, moving: false }, cookie)).status, 200);
+  }
+  assert.equal(reads, 0, "a saved profile is reused across movement and SSE");
+  assert.equal((await call("GET", "/api/campus/profile", undefined, cookie)).status, 200);
+  assert.equal(reads, 1, "explicit profile reads still verify the database");
+  await call("PUT", "/api/campus/profile", { name: "Tên Đã Đổi", gender: "male" }, cookie);
+  assert.equal(runtime.players.get(saved.body.profile.id).name, "Tên Đã Đổi");
+  assert.equal((await call("POST", "/api/campus/input", { x: 0, z: 58, heading: 0, moving: false }, `${cookie}tampered`)).status, 401);
+  assert.equal(reads, 1, "invalid sessions are rejected before looking up a cached profile");
+});
+
+test("a delayed profile GET cannot roll back a completed character change on reconnect", async (t) => {
+  const { call, guest, events, store } = await setup(t);
+  const cookie = await guest();
+  await call("PUT", "/api/campus/profile", { name: "Tên Trước", gender: "female" }, cookie);
+  const original = store.campusProfiles.get.bind(store.campusProfiles);
+  let started;
+  let finish;
+  let first = true;
+  const entered = new Promise((resolve) => { started = resolve; });
+  const hold = new Promise((resolve) => { finish = resolve; });
+  store.campusProfiles.get = async (ownerId) => {
+    const value = await original(ownerId);
+    if (first) { first = false; started(); await hold; }
+    return value;
+  };
+  const pending = call("GET", "/api/campus/profile", undefined, cookie);
+  await entered;
+  await call("PUT", "/api/campus/profile", { name: "Tên Hiện Tại", gender: "male" }, cookie);
+  finish();
+  assert.equal((await pending).body.profile.name, "Tên Trước", "the earlier GET may return its earlier snapshot");
+  const stream = await events(cookie);
+  const snapshot = await stream.until((value) => value.players.some((player) => player.id === value.selfId));
+  const self = snapshot.players.find((player) => player.id === snapshot.selfId);
+  assert.equal(self.name, "Tên Hiện Tại");
+  assert.equal(self.gender, "male");
+});
+
 test("character names are globally unique under simultaneous normalized claims and survive restart", async (t) => {
   const { call, guest, dataDir } = await setup(t);
   const [one, two] = await Promise.all([guest(), guest()]);

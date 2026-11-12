@@ -3,12 +3,14 @@ import { parseCookies, readSessionClaims } from "../auth/session.js";
 import { SESSION_COOKIE } from "../auth/requireAuth.js";
 import { getStore } from "../storage/index.js";
 import { CampusError, validateProfile } from "../campus/profiles.js";
+import { createProfileCache } from "../campus/profileCache.js";
 
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res)).catch(next);
 
 export const createCampusRouter = (runtime) => {
   const router = express.Router();
   const profileLimits = new Map();
+  const profiles = createProfileCache({ load: (ownerId) => getStore().campusProfiles.get(ownerId) });
   router.use((req, res, next) => {
     let user;
     try { user = readSessionClaims(parseCookies(req.headers.cookie)[SESSION_COOKIE], process.env.AUTH_SESSION_SECRET || ""); } catch { /* malformed cookie */ }
@@ -20,7 +22,8 @@ export const createCampusRouter = (runtime) => {
     next();
   });
   router.get("/profile", asyncRoute(async (req, res) => {
-    res.json({ profile: await getStore().campusProfiles.get(req.campusUser.id) });
+    const profile = await getStore().campusProfiles.get(req.campusUser.id);
+    res.json({ profile });
   }));
   router.put("/profile", asyncRoute(async (req, res) => {
     const timestamp = Date.now();
@@ -30,11 +33,12 @@ export const createCampusRouter = (runtime) => {
     profileLimits.set(req.campusUser.id, state);
     if (state.count > 20) throw new CampusError("Đổi tên quá nhiều lần. Hãy chờ một phút.", 429, "CAMPUS_RATE_LIMIT");
     const profile = await getStore().campusProfiles.save(req.campusUser.id, validateProfile(req.body));
+    profiles.remember(req.campusUser.id, profile);
     runtime.updateProfile(profile);
     res.json({ profile });
   }));
   router.use((req, _res, next) => {
-    getStore().campusProfiles.get(req.campusUser.id).then((profile) => {
+    profiles.get(req.campusUser.id).then((profile) => {
       if (!profile) throw new CampusError("Tạo nhân vật trước khi vào sân trường.", 409, "CHARACTER_REQUIRED");
       req.campusProfile = profile;
       next();
