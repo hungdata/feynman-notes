@@ -1,0 +1,29 @@
+# Proposed persistence for the existing feynman-notes service.
+# Review the Render plan and monthly cost before approving this Blueprint.
+# Existing ephemeral data must be exported before the first disk deployment.
+# Existing secret environment variables are retained by Render.
+services:
+  - type: web
+    name: feynman-notes
+    runtime: node
+    region: ohio
+    plan: 0.5c-512mb
+    repo: https://github.com/hungdata/feynman-notes
+    branch: main
+    rootDir: ""
+    autoDeployTrigger: commit
+    numInstances: 1
+    buildCommand: "yarn install; yarn build"
+    startCommand: yarn start
+    renderSubdomainPolicy: enabled
+    previews:
+      generation: off
+    maintenanceMode:
+      enabled: false
+    disk:
+      name: feynman-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /var/data/feynman-notes
