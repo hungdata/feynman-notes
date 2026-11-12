@@ -15,6 +15,28 @@ const fixture = () => ({
 const format = (payload = fixture(), source = explanation) => formatExplanationAssessment(payload, { explanation: source });
 const assertBad = (payload, source = explanation) => assert.throws(() => format(payload, source), (error) => error instanceof AiRequestError && error.status === 502 && error.code === "AI_BAD_ASSESSMENT");
 
+test("a malformed serialized suffix is removed while ordinary code examples stay intact", () => {
+  const payload = fixture();
+  payload.rewrittenExplanation = 'Mô hình học từ dữ liệu có nhãn.”} }```0}}';
+  assert.ok(format(payload).endsWith('Mô hình học từ dữ liệu có nhãn.'));
+  payload.rewrittenExplanation = 'Ví dụ JSON: {"label":"spam"}. Đọc trường label để biết nhãn.';
+  assert.ok(format(payload).endsWith(payload.rewrittenExplanation));
+});
+
+test("an explicit concrete example is recognized when the model overlooks the final sentence", () => {
+  const source = `${explanation} Ví dụ: mô hình học từ email gắn nhãn spam để dự đoán nhãn cho email mới.`;
+  const payload = fixture();
+  payload.missing = [{ criterion: "example", suggestion: "Thiếu ví dụ minh họa." }];
+  const output = format(payload, source);
+  assert.match(output, /Độ đúng kiến thức: khoảng 100%/);
+  assert.match(output, /Độ đầy đủ: khoảng 90%/);
+  assert.match(output, /Đã có ví dụ minh họa/);
+  assert.doesNotMatch(output, /Thiếu ví dụ minh họa/);
+  const absent = format(payload, `${explanation} Chưa có ví dụ nào trong câu này.`);
+  assert.match(absent, /Độ đầy đủ: khoảng 80%/);
+  assert.match(absent, /Thiếu ví dụ minh họa/);
+});
+
 test("fully correct introductory claims earn 100% correctness and 80% completeness without an example", () => {
   const output = format();
   assert.match(output, /Độ đúng kiến thức: khoảng 100%/);
@@ -144,7 +166,7 @@ test("the schema requires every field, rejects extra properties and asks for evi
   };
   visit(ASSESSMENT_SCHEMA.schema);
   assert.match(EXPLANATION_ASSESSMENT_INSTRUCTIONS, /không.*phần trăm/iu);
-  assert.match(EXPLANATION_ASSESSMENT_INSTRUCTIONS, /không bắt buộc hàm mất mát/iu);
+  assert.match(EXPLANATION_ASSESSMENT_INSTRUCTIONS, /Không đòi liệt kê thuật toán hoặc hàm mất mát/iu);
   assert.equal(ASSESSMENT_SCHEMA.schema.properties.correctQuotes.maxItems, 6);
   assert.equal(ASSESSMENT_SCHEMA.schema.properties.errors.maxItems, 3);
 });

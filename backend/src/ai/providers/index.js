@@ -35,6 +35,10 @@ export const runTeacherModel = async ({ messages, mode }) => {
   const explanation = verify
     ? [...messages].reverse().find((message) => message.role === "user")?.content || ""
     : "";
+  const lastUserIndex = verify ? messages.findLastIndex((message) => message.role === "user") : -1;
+  const modelMessages = verify ? messages.map((message, index) => index === lastUserIndex
+    ? { ...message, content: JSON.stringify({ studentExplanation: explanation }) }
+    : message) : messages;
   if (activeProvider() === "openai") {
     const configuredLimit = Number.parseInt(process.env.AI_MAX_OUTPUT_TOKENS, 10);
     const maxTokens = Number.isFinite(configuredLimit) && configuredLimit > 0
@@ -42,7 +46,7 @@ export const runTeacherModel = async ({ messages, mode }) => {
       : 1_200;
     const directOpenAi = /^https:\/\/api\.openai\.com(?:\/|$)/i.test(getOpenAiConfig().baseUrl);
     const result = await runOpenAiChat({
-      messages,
+      messages: modelMessages,
       ...(verify ? { json: true, ...(directOpenAi ? { jsonSchema: ASSESSMENT_SCHEMA } : {}) } : {}),
       maxTokens,
       timeoutMs: Number(process.env.AI_TEACHER_TIMEOUT_MS) || 90_000,
@@ -53,7 +57,7 @@ export const runTeacherModel = async ({ messages, mode }) => {
       usage: result.usage,
     };
   }
-  const result = await runCloudflareModel({ messages });
+  const result = await runCloudflareModel({ messages: modelMessages });
   return verify
     ? { ...result, content: formatExplanationAssessment(parseJsonLoose(result.content), { explanation }) }
     : result;

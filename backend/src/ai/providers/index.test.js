@@ -68,6 +68,9 @@ test("verify requests strict assessment JSON and computes knowledge correctness 
     assert.deepEqual(requests[0].body.response_format, { type: "json_schema", json_schema: ASSESSMENT_SCHEMA });
     assert.equal(requests[0].body.model, "gpt-5-nano");
     assert.equal(requests[0].body.max_completion_tokens, 900);
+    assert.deepEqual(JSON.parse(requests[0].body.messages.at(-1).content), { studentExplanation: messages.at(-1).content });
+    assert.equal(requests[0].body.messages[1].content, messages[1].content);
+    assert.equal(messages.at(-1).content, "Học có giám sát sử dụng dữ liệu có nhãn.");
     assert.match(result.content, /Độ đúng kiến thức: khoảng 100%/);
     assert.match(result.content, /Độ đầy đủ: khoảng 80%/);
     assert.match(result.content, /Không có lỗi kiến thức trong các ý đã viết/);
