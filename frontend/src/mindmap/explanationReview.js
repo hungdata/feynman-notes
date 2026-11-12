@@ -25,7 +25,7 @@ export const feedbackBlocks = (content) => String(content || "")
   .map((block) => {
     const [first, ...rest] = block.split("\n");
     const headingLine = first.replace(/^\s*#{1,6}\s*/, "").replace(/\*\*/g, "").replace(/^\d+[.)]\s*/, "").trim();
-    const heading = headingLine.match(/^(Kết luận|Điểm đúng|Chỗ cần sửa|Vì sao|Cách giải thích lại)(?:\s*:\s*(.*))?$/i);
+    const heading = headingLine.match(/^(Kết luận|Điểm đúng|Chỗ cần sửa|Vì sao|Còn thiếu gì|Cách giải thích lại)(?:\s*:\s*(.*))?$/i);
     if (heading) {
       return { heading: heading[1], text: [heading[2] || "", ...rest].filter(Boolean).join("\n") };
     }

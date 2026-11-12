@@ -160,7 +160,7 @@ const TeacherReviewPanel = ({ documentId, selectedNode, quickActionRequest, onQu
       </header>
 
       <div className="teacher-review-body">
-        <div className="teacher-review-intro"><Sparkles /><p>Giải thích bằng lời của bạn. AI sẽ chỉ ra chỗ đúng, chỗ cần sửa và giải thích vì sao.</p></div>
+        <div className="teacher-review-intro"><Sparkles /><p>AI ước lượng riêng độ đúng và độ đầy đủ để tham khảo, rồi chỉ rõ ý và ví dụ còn thiếu.</p></div>
         <form className="teacher-review-form" onSubmit={submit}>
           <div className="teacher-review-input-label">
             <label htmlFor="teacher-explanation">Lời giải thích của bạn</label>
@@ -210,7 +210,7 @@ const TeacherReviewPanel = ({ documentId, selectedNode, quickActionRequest, onQu
         </details>}
 
         <div className="teacher-review-results" aria-live="polite" aria-busy={sending || loading}>
-          {loading ? <div className="teacher-loading"><LoaderCircle /> Đang tải…</div> : messages.length === 0 && !sending ? <div className="teacher-review-empty"><Bot /><span>Nhận xét sẽ gồm: kết luận, điểm đúng, chỗ cần sửa, lý do và cách giải thích lại.</span></div> : messages.filter(Boolean).map((message) => (
+          {loading ? <div className="teacher-loading"><LoaderCircle /> Đang tải…</div> : messages.length === 0 && !sending ? <div className="teacher-review-empty"><Bot /><span>Nhận xét sẽ có độ đúng, độ đầy đủ, phần cần sửa, phần còn thiếu (như ví dụ) và một câu giải thích hoàn chỉnh.</span></div> : messages.filter(Boolean).map((message) => (
             <article key={message._id} className={`teacher-review-message ${message.role}`}>
               <header>{message.role === "assistant" ? <Bot /> : <UserRound />}<strong>{message.role === "assistant" ? "Nhận xét của AI" : "Lời giải thích đã gửi"}</strong></header>
               {message.role === "assistant" ? feedbackBlocks(message.content).map((block, index) => <section key={index} className="teacher-feedback-block">{block.heading && <h4>{block.heading}</h4>}{block.text && <p>{block.text}</p>}</section>) : <p>{message.content}</p>}

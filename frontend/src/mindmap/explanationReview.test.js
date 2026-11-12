@@ -43,3 +43,14 @@ test("a real response can put the verdict and correct point beside their heading
     { heading: "Cách giải thích lại", text: "- Máy học tìm quy luật trong dữ liệu." },
   ]);
 });
+
+test("accuracy and completeness remain separate estimates with actionable missing ideas", () => {
+  assert.deepEqual(feedbackBlocks("Kết luận\nĐộ đúng kiến thức: khoảng 100%.\nĐộ đầy đủ: khoảng 70%.\n\nCòn thiếu gì\n- Thiếu ví dụ: dùng thư đã gắn nhãn để dự đoán thư rác.\n\nCách giải thích lại: Học có giám sát học từ dữ liệu có nhãn để dự đoán cho mẫu mới."), [
+    { heading: "Kết luận", text: "Độ đúng kiến thức: khoảng 100%.\nĐộ đầy đủ: khoảng 70%." },
+    { heading: "Còn thiếu gì", text: "- Thiếu ví dụ: dùng thư đã gắn nhãn để dự đoán thư rác." },
+    { heading: "Cách giải thích lại", text: "Học có giám sát học từ dữ liệu có nhãn để dự đoán cho mẫu mới." },
+  ]);
+  assert.deepEqual(feedbackBlocks("**Còn thiếu gì:** Một ví dụ <img src=x onerror=alert(1)>"), [
+    { heading: "Còn thiếu gì", text: "Một ví dụ <img src=x onerror=alert(1)>" },
+  ]);
+});

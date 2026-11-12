@@ -12,14 +12,21 @@ test("verify mode reviews the latest explanation fairly with specific errors, re
   });
 
   assert.match(prompt, /Kết luận/);
-  for (const heading of ["Kết luận", "Điểm đúng", "Chỗ cần sửa", "Vì sao", "Cách giải thích lại"]) {
+  for (const heading of ["Kết luận", "Điểm đúng", "Chỗ cần sửa", "Vì sao", "Còn thiếu gì", "Cách giải thích lại"]) {
     assert.ok(prompt.includes(heading));
   }
   assert.match(prompt, /tin nhắn mới nhất/);
   assert.match(prompt, /trích nguyên văn/);
   assert.match(prompt, /lỗi kiến thức hay diễn đạt còn mơ hồ/);
   assert.match(prompt, /Không bịa lỗi/);
-  assert.match(prompt, /Không chấm điểm số hay phần trăm/);
+  assert.match(prompt, /Độ đúng kiến thức: khoảng X%/);
+  assert.match(prompt, /Độ đầy đủ: khoảng Y%/);
+  assert.match(prompt, /không phải xác suất/);
+  assert.match(prompt, /bước 10/);
+  assert.match(prompt, /không hạ độ đúng chỉ vì thiếu ví dụ/);
+  assert.match(prompt, /tối đa 80%/);
+  assert.match(prompt, /Thiếu ví dụ minh họa/);
+  assert.match(prompt, /nếu đã có ví dụ đúng/);
   assert.match(prompt, /Không kết thúc bằng câu hỏi/);
   assert.match(prompt, /không phải đáp án chuẩn/);
   assert.match(prompt, /Chưa đủ dữ kiện/);
