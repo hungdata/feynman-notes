@@ -30,7 +30,10 @@ export const describeAi = (env = process.env) => {
 /** Chat for the AI Teacher: same result shape for every provider. */
 export const runTeacherModel = async ({ messages }) => {
   if (activeProvider() === "openai") {
-    const maxTokens = Number.parseInt(process.env.AI_MAX_OUTPUT_TOKENS, 10) || 1_200;
+    const configuredLimit = Number.parseInt(process.env.AI_MAX_OUTPUT_TOKENS, 10);
+    const maxTokens = Number.isFinite(configuredLimit) && configuredLimit > 0
+      ? Math.min(configuredLimit, 4_096)
+      : 1_200;
     const result = await runOpenAiChat({ messages, maxTokens, timeoutMs: Number(process.env.AI_TEACHER_TIMEOUT_MS) || 90_000 });
     return { content: result.content, model: result.model, usage: result.usage };
   }

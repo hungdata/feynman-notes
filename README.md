@@ -78,7 +78,7 @@ Mã nằm ở `frontend/src/campus3d/` (cảnh, điều khiển, giao diện ch�
 - **Bảng thuộc tính** 6 tab (⌘1…⌘6): Ghi chú · Kiểu · Mẫu (style sheet) · Icon · Dàn ý · AI Teacher.
 - **Brainstorm** (⌘B) và **dán văn bản thành nhiều topic**; **trình chiếu** từng nhánh (F5); tập trung một nhánh; tìm kiếm; giao diện sáng/tối.
 - **Xuất/nhập**: PNG, SVG, PDF, in; OPML, FreeMind `.mm`, Markdown, văn bản thụt lề, HTML, lịch `.ics`, bản sao lưu `.json`.
-- **AI Teacher**: giải thích, tranh luận, kiểm tra đúng–sai một topic; có thể tìm thêm nguồn web (Brave Search).
+- **AI nhận xét lời giải thích**: chọn topic, sửa lời giải thích bằng lời của mình rồi bấm **Nhận xét lời giải thích**. AI nêu kết luận, điểm đúng, chỗ cần sửa, vì sao và cách giải thích lại. Mỗi lượt độc lập, không tìm web; nhận xét cũ có trong **Nhận xét đã lưu**.
 
 ### Phím tắt chính
 
@@ -116,6 +116,8 @@ AI_MODEL=gemini-3.8-flash-high          # phải khớp đúng tên model mà en
 
 Khi chạy, backend in ra `AI: bật – <model> qua <endpoint>`. Thiếu AI thì vẫn học được các khóa đã có.
 
+Để thử bằng OpenAI trực tiếp, đặt `AI_PROVIDER=openai`, `AI_BASE_URL=https://api.openai.com/v1`, key riêng ở `AI_API_KEY` và `AI_MODEL=gpt-5-nano`. Model này còn hoạt động tại thời điểm 12/11/2026, nhưng OpenAI đã công bố ngừng ngày 11/12/2026; kiểm tra [danh mục model](https://developers.openai.com/api/docs/models/gpt-5-nano) trước khi dùng lâu dài. Bản thử dùng `AI_MAX_OUTPUT_TOKENS=1200`, `AI_RATE_LIMIT_PER_MINUTE=3`, `AI_DAILY_REQUEST_LIMIT=50`. Giới hạn ngày dùng chung mọi tài khoản và mọi lời gọi OpenAI trên một tiến trình, tính cả yêu cầu lỗi, đặt lại lúc 00:00 UTC hoặc khi server khởi động lại. Đây không phải giới hạn thanh toán của tài khoản OpenAI. Model không tự đổi sang loại đắt hơn và câu trả lời bị cắt sẽ không được lưu.
+
 **Khóa học ví dụ**: mọi tệp khóa học `*.json` trong `backend/data/examples/` được thêm một lần vào thư viện của “Máy của bạn” (chế độ local). Tệp có `exampleVersion` lớn hơn sẽ thay bản cũ và giữ tiến độ. Xóa trong app thì khóa đó không quay lại nữa.
 
 ## Cấu hình (`backend/.env`, tất cả đều tùy chọn)
@@ -132,6 +134,8 @@ Sao chép `backend/.env.example` thành `backend/.env` khi cần bật thêm tí
 | `APP_BASE_URL`, `FRONTEND_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Đăng nhập Google |
 | `ALLOWED_ORIGINS` | Origin frontend khi frontend và backend khác domain |
 | `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | AI chuẩn OpenAI cho AI Teacher và tạo lộ trình từ sách (ưu tiên dùng) |
+| `AI_MAX_OUTPUT_TOKENS`, `AI_RATE_LIMIT_PER_MINUTE` | Độ dài tối đa và số lượt nhận xét/phút của mỗi người dùng |
+| `AI_DAILY_REQUEST_LIMIT` | Ngưỡng số yêu cầu OpenAI dùng chung cho bản thử trên một tiến trình/ngày UTC; 0 hoặc bỏ trống = tắt |
 | `COURSE_AI_CONCURRENCY`, `COURSE_AI_TIMEOUT_MS` | Số chương AI soạn song song (mặc định 2), thời gian chờ mỗi chương (mặc định 300000 ms) |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_TOKEN`, `CLOUDFLARE_AI_MODEL` | AI Teacher qua Cloudflare (cách 2) |
 | `BRAVE_SEARCH_API_KEY` | Nguồn web cho AI Teacher |

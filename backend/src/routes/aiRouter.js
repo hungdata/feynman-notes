@@ -7,7 +7,8 @@ import {
   assertCloudflareAiAvailable,
   getCloudflareAiAvailability,
 } from "../ai/providers/cloudflareProvider.js";
-import { AiRequestError, describeAi, isAiConfigured, runTeacherModel } from "../ai/providers/index.js";
+import { activeProvider, AiRequestError, describeAi, isAiConfigured, runTeacherModel } from "../ai/providers/index.js";
+import { AiBudgetError, getAiRequestBudget } from "../ai/requestBudget.js";
 import {
   getBraveSearchAvailability,
   searchBraveWeb,
@@ -35,12 +36,12 @@ export const normalizeTeacherRequest = (body = {}) => {
   const conversationId = normalizeOptionalId(body.conversationId);
   const nodeId = normalizeOptionalId(body.nodeId);
   const message = typeof body.message === "string" ? body.message.trim() : "";
-  const mode = typeof body.mode === "string" ? body.mode : "socratic";
+  const mode = typeof body.mode === "string" ? body.mode : "verify";
   const scope = typeof body.scope === "string" ? body.scope : "node";
   const webSearch = body.webSearch === true || WEB_RAG_MODES.has(mode);
 
   if (!documentId) throw new Error("Thiếu mind map cần học.");
-  if (!message) throw new Error("Hãy nhập câu hỏi cho AI Teacher.");
+  if (!message) throw new Error("Hãy nhập lời giải thích cần nhận xét.");
   if (message.length > MAX_USER_MESSAGE_LENGTH) {
     throw new Error("Câu hỏi không được vượt quá 2.000 ký tự.");
   }
@@ -91,7 +92,7 @@ router.use(requireAuth);
 
 router.get("/status", (_req, res) => {
   res.json({
-    ...getCloudflareAiAvailability(),
+    ...(activeProvider() === "openai" ? getAiRequestBudget() : getCloudflareAiAvailability()),
     configured: isAiConfigured(),
     model: describeAi().model,
     webSearch: getBraveSearchAvailability(),
@@ -146,7 +147,7 @@ router.delete("/conversations/:conversationId", async (req, res, next) => {
 
 const requireAiAvailability = (_req, res, next) => {
   try {
-    assertCloudflareAiAvailable();
+    if (activeProvider() === "cloudflare") assertCloudflareAiAvailable();
     next();
   } catch (error) {
     if (!(error instanceof AiProviderError)) return next(error);
@@ -185,6 +186,7 @@ router.post(
       const teacherContext = buildTeacherContext(mindMap.document, {
         scope: input.scope,
         nodeId: input.nodeId,
+        maxChars: input.mode === "verify" ? 4_000 : 12_000,
         selectedOnly: ["verify", "explain", "debate"].includes(input.mode.replace(/_rag$/, "")),
       });
       let webSources = [];
@@ -279,6 +281,10 @@ router.post(
         model: answer.model,
       });
     } catch (error) {
+      if (error instanceof AiBudgetError) {
+        res.setHeader("Retry-After", String(Math.max(1, Math.ceil((new Date(error.retryAt).getTime() - Date.now()) / 1_000))));
+        return res.status(error.status).json({ message: error.message, code: error.code, retryAt: error.retryAt });
+      }
       if (error instanceof WebSearchProviderError) {
         return res.status(error.status).json({
           message: error.message,

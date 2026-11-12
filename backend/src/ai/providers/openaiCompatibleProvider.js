@@ -1,3 +1,5 @@
+import { reserveAiRequest } from "../requestBudget.js";
+
 /**
  * Any OpenAI-compatible chat API: a local proxy (http://127.0.0.1:8045/v1),
  * OpenAI, OpenRouter, Gemini's OpenAI endpoint, LM Studio, Ollama…
@@ -45,13 +47,22 @@ export const parseJsonLoose = (text) => {
   throw new AiRequestError("AI trả về dữ liệu không phải JSON hợp lệ.", { code: "AI_BAD_JSON", retryable: true });
 };
 
-const explainHttpError = (status, detail) => {
-  if (status === 401 || status === 403) return new AiRequestError("API key không hợp lệ hoặc không có quyền (kiểm tra AI_API_KEY trong backend/.env).", { status: 502, code: "AI_AUTH_FAILED" });
+const explainHttpError = (status, payload) => {
+  const providerCode = payload?.error?.code || payload?.error?.type;
+  if (status === 401 || status === 403) return new AiRequestError("API key của máy chủ không hợp lệ hoặc chưa có quyền dùng model này.", { status: 502, code: "AI_AUTH_FAILED" });
   if (status === 404) return new AiRequestError("Không tìm thấy endpoint hoặc model (kiểm tra AI_BASE_URL và AI_MODEL).", { status: 502, code: "AI_NOT_FOUND" });
-  if (status === 429) return new AiRequestError("AI đang quá tải hoặc hết hạn mức, thử lại sau ít phút.", { status: 429, code: "AI_RATE_LIMITED", retryable: true });
+  if (status === 429 && ["insufficient_quota", "billing_hard_limit_reached"].includes(providerCode)) {
+    return new AiRequestError("Tài khoản OpenAI đã hết hạn mức hoặc chưa có tín dụng API. Chủ ứng dụng cần kiểm tra hạn mức trước khi thử lại.", { status: 429, code: "AI_QUOTA_EXHAUSTED" });
+  }
+  if (status === 429) return new AiRequestError("AI đang nhận quá nhiều yêu cầu, thử lại sau ít phút.", { status: 429, code: "AI_RATE_LIMITED", retryable: true });
   if (status >= 500) return new AiRequestError(`Máy chủ AI lỗi (${status}).`, { status: 502, code: "AI_UPSTREAM_ERROR", retryable: true });
-  return new AiRequestError(`AI từ chối yêu cầu (${status})${detail ? `: ${detail}` : ""}.`, { status: 502, code: "AI_REJECTED" });
+  // Provider error text can contain request data or secrets; never forward it.
+  return new AiRequestError(`AI từ chối yêu cầu (${status}).`, { status: 502, code: "AI_REJECTED" });
 };
+
+// The original GPT-5 reasoning models reject temperature and max_tokens.
+// Keep compatible proxies and non-reasoning models on their existing contract.
+const isOriginalGpt5 = (model) => /^gpt-5(?:-(?:mini|nano))?(?:-\d{4}-\d{2}-\d{2})?$/.test(model);
 
 /**
  * Sends a chat completion. With `json: true` the model is asked for a JSON
@@ -62,6 +73,8 @@ export const runOpenAiChat = async ({ messages, json = false, temperature = 0.4,
   if (!config.baseUrl || !config.model) {
     throw new AiRequestError("Chưa cấu hình AI: thêm AI_BASE_URL, AI_API_KEY và AI_MODEL vào backend/.env.", { status: 503, code: "AI_NOT_CONFIGURED" });
   }
+  reserveAiRequest(env);
+  const requestedTokens = positiveInteger(maxTokens, 1_200, 4_096);
   const send = async (withFormat) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs || config.timeoutMs);
@@ -76,8 +89,12 @@ export const runOpenAiChat = async ({ messages, json = false, temperature = 0.4,
         body: JSON.stringify({
           model: config.model,
           messages,
-          temperature,
-          ...(maxTokens ? { max_tokens: maxTokens } : {}),
+          ...(isOriginalGpt5(config.model)
+            ? {
+                reasoning_effort: "minimal",
+                max_completion_tokens: requestedTokens,
+              }
+            : { temperature, ...(maxTokens ? { max_tokens: maxTokens } : {}) }),
           ...(withFormat ? { response_format: { type: "json_object" } } : {}),
         }),
       });
@@ -92,11 +109,16 @@ export const runOpenAiChat = async ({ messages, json = false, temperature = 0.4,
   };
 
   let { response, payload } = await send(json);
-  // Some proxies/models do not support response_format: retry once without it.
-  if (json && response.status === 400) ({ response, payload } = await send(false));
+  // Retry only a rejected JSON-format option, not unrelated 400 errors.
+  const formatRejected = payload?.error?.param === "response_format"
+    || /response[_ ]format|json[_ ]object|json mode/i.test(String(payload?.error?.message || ""));
+  if (json && response.status === 400 && formatRejected) ({ response, payload } = await send(false));
   if (!response.ok) {
-    const detail = String(payload?.error?.message || payload?.message || "").slice(0, 200);
-    throw explainHttpError(response.status, detail);
+    throw explainHttpError(response.status, payload);
+  }
+  if (payload?.choices?.[0]?.finish_reason === "length") {
+    // Do not save a cut-off explanation or silently spend on another request.
+    throw new AiRequestError("Nhận xét chưa hoàn thành. Hãy rút gọn lời giải thích rồi thử lại.", { code: "AI_OUTPUT_TRUNCATED" });
   }
   const content = String(payload?.choices?.[0]?.message?.content ?? "").trim();
   if (!content) throw new AiRequestError("AI không trả về nội dung.", { code: "AI_EMPTY_RESPONSE", retryable: true });

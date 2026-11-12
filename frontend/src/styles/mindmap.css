@@ -588,6 +588,55 @@ svg { flex: none; }
 [data-ui-theme="dark"] .teacher-panel, [data-ui-theme="dark"] .teacher-header, [data-ui-theme="dark"] .teacher-settings, [data-ui-theme="dark"] .teacher-composer { color: var(--text); border-color: var(--line); background: var(--chrome); }
 [data-ui-theme="dark"] .teacher-select, [data-ui-theme="dark"] .teacher-context, [data-ui-theme="dark"] .teacher-composer textarea, [data-ui-theme="dark"] .teacher-setting-row select, [data-ui-theme="dark"] .teacher-web-toggle, [data-ui-theme="dark"] .teacher-message p { color: var(--text); border-color: var(--line); background: var(--chrome-2); }
 [data-ui-theme="dark"] .teacher-messages { background: var(--bg-app); }
+.teacher-review .teacher-header strong { font-size:14px; line-height:1.35; }
+.teacher-review-body { min-height:0; flex:1; overflow:auto; padding:14px; }
+.teacher-review-intro { display:flex; align-items:flex-start; gap:8px; margin-bottom:16px; color:#64748b; }
+.teacher-review-intro>svg { width:17px; height:17px; flex:none; margin-top:1px; color:#7c3aed; }
+.teacher-review-intro p { margin:0; font-size:12px; line-height:1.55; }
+.teacher-review-input-label { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; margin-bottom:7px; }
+.teacher-review-input-label label { color:#334155; font-size:12px; font-weight:750; }
+.teacher-review-input-label button { display:flex; align-items:center; gap:4px; padding:3px 0; border:0; color:#7c3aed; background:transparent; font-size:10.5px; font-weight:650; cursor:pointer; }
+.teacher-review-input-label button svg { width:12px; height:12px; }
+.teacher-review-input-label button:disabled { opacity:.45; cursor:not-allowed; }
+.teacher-review-topic { overflow:hidden; margin:0 0 7px; color:#8491a4; font-size:10.5px; text-overflow:ellipsis; white-space:nowrap; }
+.teacher-review-form textarea { display:block; width:100%; min-height:130px; max-height:300px; padding:11px 12px; border:1px solid #cbd5e1; border-radius:11px; outline:0; resize:vertical; color:#172033; background:#fff; font:inherit; font-size:12.5px; line-height:1.6; }
+.teacher-review-form textarea:focus { border-color:#8b5cf6; box-shadow:0 0 0 3px #ede9fe; }
+.teacher-review-form textarea:disabled { opacity:.7; }
+.teacher-review-input-hint { display:flex; justify-content:space-between; gap:8px; margin:6px 0 10px; color:#8491a4; font-size:9.5px; line-height:1.4; }
+.teacher-review-input-hint span:last-child { flex:none; font-variant-numeric:tabular-nums; }
+.teacher-review-submit { width:100%; min-height:40px; display:flex; align-items:center; justify-content:center; gap:7px; padding:10px 12px; border:0; border-radius:10px; color:#fff; background:linear-gradient(110deg,#7c3aed,#4f46e5); font-size:12px; font-weight:750; cursor:pointer; box-shadow:0 4px 12px #7c3aed20; }
+.teacher-review-submit>svg { width:16px; height:16px; }
+.teacher-review-submit:hover:not(:disabled) { filter:brightness(1.08); }
+.teacher-review-submit:disabled { opacity:.45; cursor:not-allowed; box-shadow:none; }
+.teacher-review-body .teacher-quota,.teacher-review-body .teacher-error { margin:12px 0 0; }
+.teacher-review-history { margin-top:16px; color:#64748b; font-size:11px; }
+.teacher-review-history summary { display:flex; align-items:center; gap:6px; width:fit-content; cursor:pointer; list-style:none; }
+.teacher-review-history summary::-webkit-details-marker { display:none; }
+.teacher-review-history summary svg { width:14px; height:14px; }
+.teacher-review-history[open] summary { margin-bottom:8px; }
+.teacher-review-results { display:flex; flex-direction:column; gap:12px; margin-top:18px; }
+.teacher-review-empty { display:flex; align-items:flex-start; gap:8px; padding:12px; border:1px dashed #cbd5e1; border-radius:10px; color:#8491a4; font-size:11px; line-height:1.6; }
+.teacher-review-empty>svg { width:17px; height:17px; flex:none; margin-top:1px; }
+.teacher-review-message { min-width:0; padding:13px; border:1px solid #e2e8f0; border-radius:12px; color:#334155; background:#fff; }
+.teacher-review-message>header { display:flex; align-items:center; gap:7px; margin-bottom:10px; color:#7c3aed; }
+.teacher-review-message>header svg { width:15px; height:15px; flex:none; }
+.teacher-review-message>header strong { font-size:11px; }
+.teacher-review-message p { margin:0; font-size:12px; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; }
+.teacher-review-message.user { padding:11px 12px; background:#f1f5f9; }
+.teacher-review-message.user>header { margin-bottom:6px; color:#64748b; }
+.teacher-review-message.user>p { color:#64748b; font-size:11px; }
+.teacher-feedback-block+.teacher-feedback-block { margin-top:14px; padding-top:12px; border-top:1px solid #edf0f5; }
+.teacher-feedback-block h4 { margin:0 0 5px; color:#4c1d95; font-size:12px; font-weight:750; }
+.teacher-review-progress { display:flex; align-items:center; gap:7px; padding:10px 0; color:#7c3aed; font-size:11px; }
+.teacher-review-progress svg { flex:none; }
+[data-ui-theme="dark"] .teacher-review-body { background:var(--bg-app); }
+[data-ui-theme="dark"] .teacher-review-form textarea,[data-ui-theme="dark"] .teacher-review-message { color:var(--text); border-color:var(--line); background:var(--chrome); }
+[data-ui-theme="dark"] .teacher-review-message.user { background:var(--chrome-2); }
+[data-ui-theme="dark"] .teacher-review-input-label label { color:var(--text); }
+[data-ui-theme="dark"] .teacher-review-intro,[data-ui-theme="dark"] .teacher-review-message.user>p,[data-ui-theme="dark"] .teacher-review-history { color:var(--text-2); }
+[data-ui-theme="dark"] .teacher-review-topic,[data-ui-theme="dark"] .teacher-review-input-hint,[data-ui-theme="dark"] .teacher-review-empty { color:var(--text-3); }
+[data-ui-theme="dark"] .teacher-review-empty,[data-ui-theme="dark"] .teacher-feedback-block+.teacher-feedback-block { border-color:var(--line); }
+[data-ui-theme="dark"] .teacher-feedback-block h4,[data-ui-theme="dark"] .teacher-review-message>header,[data-ui-theme="dark"] .teacher-review-input-label button { color:#b59aff; }
 [data-ui-theme="dark"] .coffee-modal { color: var(--text); border-color: var(--line); background: var(--chrome); }
 
 /* ------------------------------------------------------------ responsive -- */

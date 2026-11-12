@@ -1,46 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Bot,
-  ChevronDown,
-  CircleAlert,
-  GraduationCap,
-  Globe2,
-  LoaderCircle,
-  MessageCirclePlus,
-  Send,
-  Sparkles,
-  UserRound,
-  X,
-} from "lucide-react";
-import {
-  fetchTeacherConversations,
-  fetchTeacherMessages,
-  fetchTeacherStatus,
-  sendTeacherMessage,
-} from "@/mindmap/teacherApi";
-
-const MODE_OPTIONS = [
-  { value: "socratic", label: "Socratic", hint: "Thầy hỏi để bạn tự suy luận" },
-  { value: "explain", label: "Giải thích", hint: "Giải thích dễ hiểu theo Feynman" },
-  { value: "debate", label: "Tranh luận", hint: "Phản biện luận điểm và giả định" },
-  { value: "quiz", label: "Kiểm tra", hint: "Hỏi và chấm từng câu" },
-  { value: "review", label: "Ôn tập", hint: "Tìm phần thiếu và cần ôn" },
-  { value: "verify", label: "Kiểm chứng note", hint: "Chỉ ra đúng, sai và lập luận chuẩn" },
-  { value: "explain_rag", label: "Giải thích + Web RAG", hint: "Giải thích bằng nguồn web có dẫn chứng" },
-  { value: "debate_rag", label: "Tranh luận + Web RAG", hint: "Đối chiếu nguồn ủng hộ và phản biện" },
-  { value: "verify_rag", label: "Kiểm tra + Web RAG", hint: "Xác minh note bằng nguồn web" },
-];
-
-const RAG_MODES = new Set(["explain_rag", "debate_rag", "verify_rag"]);
-
-const SCOPE_OPTIONS = [
-  { value: "node", label: "Node này" },
-  { value: "branch", label: "Cả nhánh" },
-  { value: "map", label: "Toàn mind map" },
-];
-
-const nodeTitle = (node) =>
-  node?.data?.label || node?.data?.caption || node?.data?.note || (node?.type === "image" ? "Ảnh" : "Chưa chọn node");
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Bot, ChevronDown, CircleAlert, GraduationCap, History, LoaderCircle, RefreshCw, Sparkles, UserRound, X } from "lucide-react";
+import { fetchTeacherConversations, fetchTeacherMessages, fetchTeacherStatus, sendTeacherMessage } from "@/mindmap/teacherApi";
+import { EXPLANATION_LIMIT, explanationDraftKey, explanationReviewRequest, feedbackBlocks, nodeExplanation } from "@/mindmap/explanationReview";
 
 const formatResetTime = (retryAt) => {
   if (!retryAt) return "ngày mai";
@@ -49,31 +10,34 @@ const formatResetTime = (retryAt) => {
   return date.toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
 };
 
-const QUICK_ACTION_MESSAGES = {
-  explain: "Hãy giải thích duy nhất note này theo phương pháp Feynman: làm rõ ý nghĩa, cơ chế hoặc logic từng bước, đưa một ví dụ ngắn và chỉ ra điểm dễ hiểu nhầm.",
-  debate: "Hãy tranh luận học thuật về duy nhất note này: xác định luận điểm, nêu phần hợp lý, phản biện mạnh nhất, các giả định hoặc bằng chứng còn thiếu, rồi kết luận quan điểm hợp lý hơn.",
-  verify: "Hãy kiểm chứng duy nhất note này: kết luận đúng hay sai, chỉ rõ chỗ sai hoặc thiếu, giải thích lập luận đúng từng bước và đề xuất phiên bản note đã sửa.",
-};
-
-const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickActionComplete, onClose, embedded = false }) => {
-  const [mode, setMode] = useState("socratic");
-  const [scope, setScope] = useState("node");
+const TeacherReviewPanel = ({ documentId, selectedNode, quickActionRequest, onQuickActionComplete, onClose, embedded = false }) => {
   const [conversationId, setConversationId] = useState("");
   const [conversations, setConversations] = useState([]);
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [webSearch, setWebSearch] = useState(true);
+  const [drafts, setDrafts] = useState({});
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [availability, setAvailability] = useState({ available: true, retryAt: null });
   const messageEndRef = useRef(null);
   const handledQuickActionRef = useRef("");
+  const sendingRef = useRef(false);
+  const activeRef = useRef(true);
+  const historyRequestRef = useRef(0);
+  const draftKey = explanationDraftKey(documentId, selectedNode?.id);
+  const selectedText = nodeExplanation(selectedNode);
+  const input = drafts[draftKey] ?? selectedText;
+  const setInput = (value) => setDrafts((current) => ({ ...current, [draftKey]: value }));
 
   const refreshConversations = useCallback(async () => {
     const result = await fetchTeacherConversations(documentId);
-    setConversations(Array.isArray(result?.conversations) ? result.conversations : []);
+    if (activeRef.current) setConversations(Array.isArray(result?.conversations) ? result.conversations : []);
   }, [documentId]);
+
+  useEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -83,252 +47,158 @@ const TeacherPanel = ({ documentId, selectedNode, quickActionRequest, onQuickAct
         setAvailability(status || { available: true, retryAt: null });
         setConversations(Array.isArray(history?.conversations) ? history.conversations : []);
       })
-      .catch((requestError) => {
-        if (active) setError(requestError.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+      .catch((requestError) => { if (active) setError(requestError.message); })
+      .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [documentId]);
 
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    if (messages.length || sending) messageEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }, [messages, sending]);
 
   useEffect(() => {
     if (availability.available || !availability.retryAt) return undefined;
     const delay = new Date(availability.retryAt).getTime() - Date.now() + 1_000;
     if (!Number.isFinite(delay) || delay <= 0) return undefined;
-    const timer = window.setTimeout(() => {
-      fetchTeacherStatus().then(setAvailability).catch(() => {});
-    }, Math.min(delay, 2_147_000_000));
+    const timer = window.setTimeout(() => { fetchTeacherStatus().then(setAvailability).catch(() => {}); }, Math.min(delay, 2_147_000_000));
     return () => window.clearTimeout(timer);
   }, [availability.available, availability.retryAt]);
 
-  const currentMode = useMemo(
-    () => MODE_OPTIONS.find((option) => option.value === mode) || MODE_OPTIONS[0],
-    [mode]
-  );
-  const effectiveScope = selectedNode ? scope : "map";
-
   const openConversation = async (id) => {
+    const requestId = ++historyRequestRef.current;
     setConversationId(id);
     setError("");
     if (!id) {
       setMessages([]);
+      setLoading(false);
       return;
     }
     setLoading(true);
     try {
       const result = await fetchTeacherMessages(id);
-      setMessages(Array.isArray(result?.messages) ? result.messages : []);
-      setMode(result?.conversation?.mode || "socratic");
-      setScope(result?.conversation?.scope || "node");
+      if (activeRef.current && requestId === historyRequestRef.current) setMessages(Array.isArray(result?.messages) ? result.messages : []);
     } catch (requestError) {
-      setError(requestError.message);
+      if (activeRef.current && requestId === historyRequestRef.current) setError(requestError.message);
     } finally {
-      setLoading(false);
+      if (activeRef.current && requestId === historyRequestRef.current) setLoading(false);
     }
   };
 
-  const sendContent = useCallback(async (rawContent, overrides = {}) => {
+  const sendContent = useCallback(async (rawContent, { node = selectedNode, saveAsTeacherNote = false } = {}) => {
     const content = rawContent.trim();
-    if (!content || sending || !availability.available || availability.configured === false) return;
-    const requestedMode = overrides.mode || mode;
-    const requestedScope = overrides.scope || effectiveScope;
-    const requestedNode = overrides.node || selectedNode;
-    const requestedConversationId = overrides.newConversation ? "" : conversationId;
-    const requestedModeRequiresWeb = RAG_MODES.has(requestedMode);
-    const webSearchAvailable = availability.webSearch?.available === true;
-    const requestedWebSearch = (requestedModeRequiresWeb || overrides.webSearch === true || webSearch) && webSearchAvailable;
-
-    if (requestedModeRequiresWeb && !webSearchAvailable) {
-      setError("Chế độ Web RAG chưa thể dùng vì Brave Search chưa được cấu hình hoặc đã hết hạn mức.");
-      return;
-    }
-
-    if (requestedScope !== "map" && !requestedNode) {
-      setError("Hãy chọn một note hoặc ảnh trên mind map trước.");
-      return;
-    }
-
+    if (!content || sendingRef.current || !availability.available || availability.configured === false) return;
+    sendingRef.current = true;
+    ++historyRequestRef.current;
     const optimisticUser = { _id: `local-${Date.now()}`, role: "user", content };
-    setMessages((current) => [...current, optimisticUser]);
-    setInput("");
+    setMessages([optimisticUser]);
+    setConversationId("");
     setError("");
     setSending(true);
 
     try {
-      const result = await sendTeacherMessage({
-        documentId,
-        ...(requestedConversationId ? { conversationId: requestedConversationId } : {}),
-        message: content,
-        mode: requestedMode,
-        scope: requestedScope,
-        webSearch: requestedWebSearch,
-        ...(requestedScope !== "map" ? { nodeId: requestedNode.id } : {}),
-      });
-      const nextConversationId = result?.conversation?._id || requestedConversationId;
+      const result = await sendTeacherMessage(explanationReviewRequest({ documentId, explanation: content, node }));
+      if (!activeRef.current) return;
+      const nextConversationId = result?.conversation?._id || "";
       setConversationId(nextConversationId);
-      setMessages((current) => [...current, result.message]);
+      setMessages([optimisticUser, result.message]);
       refreshConversations().catch(() => {});
-      if (overrides.saveAsTeacherNote && result?.message?.content) {
-        onQuickActionComplete?.({
-          sourceNodeId: requestedNode.id,
-          content: result.message.content,
-          conversationId: nextConversationId,
-          mode: requestedMode,
-        });
+      if (saveAsTeacherNote && node?.id && result?.message?.content) {
+        onQuickActionComplete?.({ sourceNodeId: node.id, content: result.message.content, conversationId: nextConversationId, mode: "verify" });
       }
     } catch (requestError) {
-      setMessages((current) => current.filter((message) => message._id !== optimisticUser._id));
-      setInput(content);
+      if (!activeRef.current) return;
+      setMessages([]);
       setError(requestError.message);
-      if (requestError.code === "AI_DAILY_QUOTA_EXHAUSTED") {
-        setAvailability({ available: false, code: requestError.code, retryAt: requestError.retryAt });
-      }
-      if (["WEB_SEARCH_QUOTA_EXHAUSTED", "WEB_SEARCH_AUTH_FAILED", "WEB_SEARCH_NOT_CONFIGURED"].includes(requestError.code)) {
-        setAvailability((current) => ({
-          ...current,
-          webSearch: { available: false, provider: "brave", code: requestError.code },
-        }));
+      if (["AI_DAILY_QUOTA_EXHAUSTED", "AI_TEST_DAILY_LIMIT"].includes(requestError.code)) {
+        setAvailability((current) => ({ ...current, available: false, code: requestError.code, retryAt: requestError.retryAt }));
       }
     } finally {
-      setSending(false);
+      sendingRef.current = false;
+      if (activeRef.current) setSending(false);
     }
-  }, [availability.available, availability.configured, availability.webSearch?.available, conversationId, documentId, effectiveScope, mode, onQuickActionComplete, refreshConversations, selectedNode, sending, webSearch]);
+  }, [availability.available, availability.configured, documentId, onQuickActionComplete, refreshConversations, selectedNode]);
 
   const submit = (event) => {
-    event?.preventDefault();
-    void sendContent(input);
+    event.preventDefault();
+    if (!loading) void sendContent(input);
   };
 
   useEffect(() => {
     if (!quickActionRequest?.requestId || loading || sending || !availability.available || availability.configured === false) return;
-    if (handledQuickActionRef.current === quickActionRequest.requestId) return;
-    if (!selectedNode || selectedNode.id !== quickActionRequest.nodeId) return;
-    const requestedMode = quickActionRequest.mode;
-    const requestedMessage = QUICK_ACTION_MESSAGES[requestedMode];
-    if (!requestedMessage) return;
-
+    if (handledQuickActionRef.current === quickActionRequest.requestId || !selectedNode || selectedNode.id !== quickActionRequest.nodeId) return;
     let active = true;
     queueMicrotask(() => {
-      if (!active) return;
-      if (handledQuickActionRef.current === quickActionRequest.requestId) return;
+      if (!active || handledQuickActionRef.current === quickActionRequest.requestId) return;
       handledQuickActionRef.current = quickActionRequest.requestId;
-      setMode(requestedMode);
-      setScope("node");
-      setConversationId("");
-      setMessages([]);
-      setError("");
-      void sendContent(requestedMessage, {
-        mode: requestedMode,
-        scope: "node",
-        node: selectedNode,
-        newConversation: true,
-        saveAsTeacherNote: true,
-        webSearch: true,
-      });
+      const explanation = nodeExplanation(selectedNode);
+      if (!explanation) { setError("Hãy viết lời giải thích vào topic hoặc ghi chú trước."); return; }
+      setDrafts((current) => ({ ...current, [explanationDraftKey(documentId, selectedNode.id)]: explanation }));
+      void sendContent(explanation, { node: selectedNode, saveAsTeacherNote: true });
     });
     return () => { active = false; };
-  }, [availability.available, availability.configured, loading, quickActionRequest, selectedNode, sendContent, sending]);
+  }, [availability.available, availability.configured, documentId, loading, quickActionRequest, selectedNode, sendContent, sending]);
 
   const notConfigured = availability.configured === false;
   const unavailable = !availability.available || notConfigured;
-  const modeRequiresWeb = RAG_MODES.has(mode);
-  const ragUnavailable = modeRequiresWeb && availability.webSearch?.available !== true;
 
   return (
-    <aside className={`teacher-panel ${embedded ? "is-embedded" : ""}`} aria-label="AI Teacher">
+    <aside className={`teacher-panel teacher-review ${embedded ? "is-embedded" : ""}`} aria-label="Nhận xét lời giải thích bằng AI">
       <header className="teacher-header">
         <div className="teacher-avatar"><GraduationCap /></div>
-        <div><span>FEYNMAN AI</span><strong>Teacher</strong></div>
-        <button type="button" onClick={onClose} aria-label="Đóng AI Teacher"><X /></button>
+        <div><span>FEYNMAN AI</span><strong>Nhận xét lời giải thích</strong></div>
+        <button type="button" onClick={onClose} aria-label="Đóng nhận xét AI"><X /></button>
       </header>
 
-      <div className="teacher-settings">
-        <label>
-          <span>Cuộc trò chuyện</span>
-          <div className="teacher-select">
-            <MessageCirclePlus />
-            <select value={conversationId} onChange={(event) => openConversation(event.target.value)}>
-              <option value="">Cuộc trò chuyện mới</option>
-              {conversations.map((conversation) => (
-                <option key={conversation._id} value={conversation._id}>{conversation.title}</option>
-              ))}
-            </select>
-            <ChevronDown />
+      <div className="teacher-review-body">
+        <div className="teacher-review-intro"><Sparkles /><p>Giải thích bằng lời của bạn. AI sẽ chỉ ra chỗ đúng, chỗ cần sửa và giải thích vì sao.</p></div>
+        <form className="teacher-review-form" onSubmit={submit}>
+          <div className="teacher-review-input-label">
+            <label htmlFor="teacher-explanation">Lời giải thích của bạn</label>
+            {selectedNode && <button type="button" disabled={!selectedText || sending} onClick={() => setInput(selectedText)} title="Lấy lại nội dung topic và ghi chú"><RefreshCw /> Dùng nội dung topic</button>}
           </div>
-        </label>
-        <div className="teacher-setting-row">
-          <label><span>Cách dạy</span><select value={mode} onChange={(event) => { setMode(event.target.value); if (RAG_MODES.has(event.target.value)) setWebSearch(true); }}>{MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-          <label><span>Phạm vi</span><select value={effectiveScope} onChange={(event) => setScope(event.target.value)}>{SCOPE_OPTIONS.map((option) => <option key={option.value} value={option.value} disabled={option.value !== "map" && !selectedNode}>{option.label}</option>)}</select></label>
-        </div>
-        <div className="teacher-context"><Sparkles /><span><small>{currentMode.hint}</small><strong>{effectiveScope === "map" ? "Toàn bộ mind map" : nodeTitle(selectedNode)}</strong></span></div>
-        <label className="teacher-web-toggle">
-          <input
-            type="checkbox"
-            checked={(modeRequiresWeb || webSearch) && availability.webSearch?.available === true}
-            onChange={(event) => setWebSearch(event.target.checked)}
-            disabled={modeRequiresWeb || availability.webSearch?.available !== true}
+          {selectedNode && <div className="teacher-review-topic" title={selectedNode.data?.label || selectedNode.data?.caption || ""}>Topic: {selectedNode.data?.label || selectedNode.data?.caption || "Ảnh đang chọn"}</div>}
+          <textarea
+            id="teacher-explanation"
+            value={input}
+            onChange={(event) => setInput(event.target.value.slice(0, EXPLANATION_LIMIT))}
+            placeholder="Ví dụ: Theo em, học máy là cách máy tính học từ dữ liệu để…"
+            disabled={sending}
+            rows={5}
+            maxLength={EXPLANATION_LIMIT}
           />
-          <Globe2 />
-          <span>
-            <strong>Tìm thêm trên web</strong>
-            <small>{availability.webSearch?.available === true ? (modeRequiresWeb ? "Bắt buộc trong chế độ RAG" : "Brave Search · có dẫn nguồn") : "Chưa cấu hình hoặc đã hết hạn mức"}</small>
-          </span>
-        </label>
-      </div>
+          <div className="teacher-review-input-hint"><span>Bạn có thể sửa nội dung trước khi gửi.</span><span>{input.length}/{EXPLANATION_LIMIT}</span></div>
+          <button className="teacher-review-submit" type="submit" disabled={!input.trim() || unavailable || sending || loading}>
+            {sending ? <LoaderCircle className="spin" /> : <Sparkles />}
+            {sending ? "Đang nhận xét…" : "Nhận xét lời giải thích"}
+          </button>
+        </form>
 
-      {notConfigured && (
-        <div className="teacher-quota is-setup" role="note">
-          <CircleAlert />
-          <div><strong>AI Teacher chưa được bật trên server</strong><span>Thêm CLOUDFLARE_ACCOUNT_ID và CLOUDFLARE_AI_TOKEN vào backend/.env rồi khởi động lại backend.</span></div>
+        {notConfigured && <div className="teacher-quota is-setup" role="note"><CircleAlert /><div><strong>AI chưa sẵn sàng</strong><span>Bạn vẫn có thể viết lời giải thích và thử lại sau.</span></div></div>}
+        {unavailable && !notConfigured && <div className="teacher-quota" role="alert"><CircleAlert /><div><strong>Đã hết lượt thử hôm nay</strong><span>Bạn có thể nhận xét tiếp lúc {formatResetTime(availability.retryAt)}.</span></div></div>}
+        {error && !unavailable && <div className="teacher-error" role="alert"><CircleAlert /> {error}</div>}
+
+        {conversations.length > 0 && <details className="teacher-review-history">
+          <summary><History /> Nhận xét đã lưu</summary>
+          <label className="teacher-select"><select aria-label="Chọn nhận xét đã lưu" value={conversationId} onChange={(event) => openConversation(event.target.value)} disabled={sending || loading}><option value="">Chọn một lần nhận xét</option>{conversations.map((conversation) => <option key={conversation._id} value={conversation._id}>{conversation.title}</option>)}</select><ChevronDown /></label>
+        </details>}
+
+        <div className="teacher-review-results" aria-live="polite" aria-busy={sending || loading}>
+          {loading ? <div className="teacher-loading"><LoaderCircle /> Đang tải…</div> : messages.length === 0 && !sending ? <div className="teacher-review-empty"><Bot /><span>Nhận xét sẽ gồm: kết luận, điểm đúng, chỗ cần sửa, lý do và cách giải thích lại.</span></div> : messages.filter(Boolean).map((message) => (
+            <article key={message._id} className={`teacher-review-message ${message.role}`}>
+              <header>{message.role === "assistant" ? <Bot /> : <UserRound />}<strong>{message.role === "assistant" ? "Nhận xét của AI" : "Lời giải thích đã gửi"}</strong></header>
+              {message.role === "assistant" ? feedbackBlocks(message.content).map((block, index) => <section key={index} className="teacher-feedback-block">{block.heading && <h4>{block.heading}</h4>}{block.text && <p>{block.text}</p>}</section>) : <p>{message.content}</p>}
+            </article>
+          ))}
+          {sending && <div className="teacher-review-progress"><LoaderCircle className="spin" /> Đang xem từng ý trong lời giải thích…</div>}
+          <div ref={messageEndRef} />
         </div>
-      )}
-      {unavailable && !notConfigured && (
-        <div className="teacher-quota" role="alert">
-          <CircleAlert />
-          <div><strong>Đã hết lượt miễn phí hôm nay</strong><span>AI Teacher sẽ mở lại lúc {formatResetTime(availability.retryAt)}.</span></div>
-        </div>
-      )}
-      {error && !unavailable && <div className="teacher-error" role="alert"><CircleAlert /> {error}</div>}
-
-      <div className="teacher-messages" aria-live="polite">
-        {loading ? (
-          <div className="teacher-loading"><LoaderCircle /> Đang tải Teacher…</div>
-        ) : messages.length === 0 ? (
-          <div className="teacher-empty"><div><Bot /></div><strong>Bắt đầu học từ mind map</strong><p>Chọn một note, sau đó hỏi Teacher giải thích hoặc kiểm tra kiến thức của bạn.</p><button type="button" onClick={() => setInput("Hãy bắt đầu bằng một câu hỏi Socratic về nội dung này.")}>Bắt đầu Socratic</button></div>
-        ) : messages.map((message) => (
-          <article key={message._id} className={`teacher-message ${message.role}`}>
-            <span>{message.role === "assistant" ? <Bot /> : <UserRound />}</span>
-            <div><strong>{message.role === "assistant" ? "Teacher" : "Bạn"}</strong><p>{message.content}</p></div>
-          </article>
-        ))}
-        {sending && <div className="teacher-typing"><span /><span /><span /></div>}
-        <div ref={messageEndRef} />
       </div>
-
-      <form className="teacher-composer" onSubmit={submit}>
-        <textarea
-          value={input}
-          onChange={(event) => setInput(event.target.value.slice(0, 2_000))}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) submit(event);
-          }}
-          placeholder={notConfigured ? "AI Teacher chưa được cấu hình" : unavailable ? "Đã hết lượt miễn phí hôm nay" : ragUnavailable ? "Web RAG hiện chưa khả dụng" : "Hỏi Teacher về nội dung đang chọn…"}
-          disabled={unavailable || ragUnavailable || sending}
-          rows={2}
-          aria-label="Câu hỏi cho AI Teacher"
-        />
-        <button type="submit" disabled={!input.trim() || unavailable || ragUnavailable || sending} aria-label="Gửi câu hỏi">
-          {sending ? <LoaderCircle className="spin" /> : <Send />}
-        </button>
-        <small>{input.length}/2000 · Enter để gửi, Shift + Enter để xuống dòng</small>
-      </form>
     </aside>
   );
 };
+
+// A document switch starts a fresh review session; pending callbacks belong only
+// to the document that initiated them, including the optional save-to-map action.
+const TeacherPanel = (props) => <TeacherReviewPanel key={props.documentId} {...props} />;
 
 export default TeacherPanel;

@@ -14,7 +14,7 @@ test("teacher request validates scope, node and message boundaries", () => {
       conversationId: null,
       nodeId: "node-1",
       message: "Vì sao lực gây gia tốc?",
-      mode: "socratic",
+      mode: "verify",
       scope: "node",
       webSearch: false,
     }

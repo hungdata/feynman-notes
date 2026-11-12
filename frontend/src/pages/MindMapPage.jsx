@@ -193,7 +193,7 @@ const MindMapWorkspace = () => {
   const saveTeacherNote = useCallback(({ sourceNodeId, content, conversationId, mode }) => {
     const source = map.allNodes.find((node) => node.id === sourceNodeId && node.type === "topic");
     if (!source || !String(content || "").trim()) return;
-    const label = { explain: "AI giải thích", debate: "AI tranh luận", verify: "AI kiểm tra", explain_rag: "AI giải thích + nguồn web", debate_rag: "AI tranh luận + nguồn web", verify_rag: "AI kiểm tra + nguồn web" }[mode] || "AI Teacher";
+    const label = { explain: "AI giải thích", debate: "AI tranh luận", verify: "AI nhận xét lời giải thích", explain_rag: "AI giải thích + nguồn web", debate_rag: "AI tranh luận + nguồn web", verify_rag: "AI kiểm tra + nguồn web" }[mode] || "AI Teacher";
     map.addNode(sourceNodeId, label, {
       select: false,
       data: { icon: "graduation", note: String(content).trim(), color: "#f5f3ff", textColor: "#4c1d95", borderColor: "#a78bfa", shape: "rounded", maxWidth: 380, aiGenerated: true, aiActionMode: mode || "", aiSourceNodeId: sourceNodeId, aiConversationId: conversationId || "" },
