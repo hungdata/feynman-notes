@@ -418,3 +418,15 @@
   .c3-match-instructions { bottom: 111px; right: 12px; }
   .has-sport .c3-online-card { width: 170px; }
 }
+
+/* ---------- lối vào trận 11 người kiểu FIFA Online 4 ---------- */
+
+.c3-place-list a { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 11px; border-radius: 10px; color: var(--c3-ink); font: 600 14px/1.2 var(--ln-display); text-decoration: none; background: #fff7d6; }
+.c3-place-list a:hover { background: #ffefb0; }
+.c3-sport-buttons .c3-fo4-tile { grid-column: 1 / -1; display: flex; align-items: center; gap: 9px; min-height: 54px; padding: 9px 12px; border-radius: 13px; color: #fff; background: linear-gradient(120deg, #0f1f4d, #1f5fd1); text-decoration: none; box-shadow: 0 6px 16px rgb(16 22 56 / 22%); }
+.c3-sport-buttons .c3-fo4-tile > span { font-size: 25px; }
+.c3-sport-buttons .c3-fo4-tile strong { display: flex; flex-direction: column; gap: 4px; font: 700 13px/1.1 var(--ln-display); }
+.c3-sport-buttons .c3-fo4-tile small { color: #ffd23f; font-size: 10px; font-weight: 500; }
+.c3-fo4-link { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 2px; padding: 8px 12px; border-radius: 10px; color: #fff; background: linear-gradient(120deg, #0f1f4d, #1f5fd1); font: 600 13px/1.2 var(--ln-display); text-decoration: none; }
+.c3-fo4-link span { color: #ffd23f; }
+.c3-fo4-link:focus-visible, .c3-fo4-tile:focus-visible, .c3-place-list a:focus-visible { outline: 3px solid var(--c3-yellow); outline-offset: 2px; }

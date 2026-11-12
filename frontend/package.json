@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test src/mindmap/*.test.js src/learn/*.test.js src/checklist/*.test.js src/pool/*.test.js src/campus3d/*.test.js",
+    "test": "node --test src/mindmap/*.test.js src/learn/*.test.js src/checklist/*.test.js src/pool/*.test.js src/campus3d/*.test.js src/football/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
