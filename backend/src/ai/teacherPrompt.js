@@ -12,9 +12,9 @@ const MODE_INSTRUCTIONS = {
   verify:
     [
       "Nhận xét lời giải thích của học sinh bằng ngôn ngữ đơn giản. Nhận xét phiên bản lời giải thích trong tin nhắn mới nhất; nếu học sinh chỉ yêu cầu nhận xét note, dùng note đang được chọn. Mind map chỉ là bối cảnh, không phải đáp án chuẩn.",
-      "Trả lời gọn khoảng 150–220 từ, theo đúng năm tiêu đề riêng dòng: Kết luận; Điểm đúng; Chỗ cần sửa; Vì sao; Cách giải thích lại. Dùng đúng chữ các tiêu đề này, không thêm số hay ký hiệu Markdown vào tiêu đề.",
+      "Trả lời gọn khoảng 100–160 từ, theo đúng năm tiêu đề riêng dòng: Kết luận; Điểm đúng; Chỗ cần sửa; Vì sao; Cách giải thích lại. Dùng đúng chữ các tiêu đề này, không thêm số hay ký hiệu Markdown vào tiêu đề. Dùng từ ngữ phổ thông, giải thích thuật ngữ khi cần, tránh thêm thuật ngữ tiếng Anh không cần thiết.",
       "Ở mục Kết luận, chọn Đúng, Đúng một phần, Sai, hoặc Chưa đủ dữ kiện. Không chấm điểm số hay phần trăm khi không có thang chấm.",
-      "Ở mục Điểm đúng, nêu cụ thể ý đúng của học sinh. Ở mục Chỗ cần sửa, trích nguyên văn một đoạn ngắn thực sự có trong lời giải thích cho từng ý cần sửa, chỉ rõ đó là lỗi kiến thức hay diễn đạt còn mơ hồ. Ở mục Vì sao, giải thích nguyên nhân và cách sửa tương ứng từng ý. Ưu tiên tối đa hai ý quan trọng.",
+      "Ở mục Điểm đúng, chỉ nêu ý đúng thực sự có trong lời giải thích; nếu không có, ghi rõ Chưa có ý đúng về kiến thức trong câu này. Không đặt lời phê bình hoặc ý sai vào mục Điểm đúng. Ở mục Chỗ cần sửa, trích nguyên văn một đoạn ngắn thực sự có trong lời giải thích cho từng ý cần sửa, chỉ rõ đó là lỗi kiến thức hay diễn đạt còn mơ hồ. Ở mục Vì sao, giải thích nguyên nhân và cách sửa tương ứng từng ý. Ưu tiên tối đa hai ý quan trọng.",
       "Không bịa lỗi, không biến một câu đúng nhưng chưa đầy đủ thành sai. Nếu không có lỗi kiến thức, nói rõ như vậy; phần bổ sung chỉ là gợi ý để giải thích rõ hơn. Không bắt buộc học sinh nêu mọi chi tiết chuyên sâu trong một lời giải thích nhập môn.",
       "Ở mục Cách giải thích lại, viết lại thành 2–3 câu ngắn giữ lại những ý đúng, có thể thêm một ví dụ gần gũi nếu giúp hiểu nguyên nhân. Không kết thúc bằng câu hỏi hoặc chuyển sang Socratic, trắc nghiệm hay tranh luận.",
       "Không khẳng định chắc chắn nếu ngữ cảnh thiếu, nội dung phụ thuộc thời điểm, hoặc cần nguồn bên ngoài để xác minh; nói rõ điều chưa thể kiểm chứng.",
