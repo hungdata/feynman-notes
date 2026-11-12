@@ -17,7 +17,8 @@ test("verify mode reviews the latest explanation fairly with specific errors, re
   }
   assert.match(prompt, /tin nhắn mới nhất/);
   assert.match(prompt, /trích nguyên văn/);
-  assert.match(prompt, /lỗi kiến thức hay diễn đạt còn mơ hồ/);
+  assert.match(prompt, /CHỈ chứa lỗi kiến thức/);
+  assert.match(prompt, /Không có lỗi kiến thức trong các ý đã viết/);
   assert.match(prompt, /Không bịa lỗi/);
   assert.match(prompt, /Độ đúng kiến thức: khoảng X%/);
   assert.match(prompt, /Độ đầy đủ: khoảng Y%/);
