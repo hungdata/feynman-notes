@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, DoorOpen, MapPin, Moon, Rabbit, RefreshCw, Sun, Sunrise, Sunset, Users, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, DoorOpen, House, MapPin, Moon, Rabbit, RefreshCw, Sun, Sunrise, Sunset, Users, X } from "lucide-react";
 import "@fontsource-variable/lexend";
 import "@fontsource/patrick-hand/vietnamese-400.css";
 import "@fontsource/patrick-hand/latin-400.css";
@@ -400,6 +400,7 @@ const Campus3DPage = () => {
             {BUILDINGS.map((building) => <li key={building.id}><button type="button" onClick={() => { setPlacesOpen(false); go(building); }}><span className="c3-dot" style={{ background: building.roof }} aria-hidden="true" />{building.name}</button></li>)}
           </ul>}
         </div>
+        <Link className="c3-pill" to="/nha" title="Về nhà: bàn học bên cửa sổ tầng 2, kệ sách, giường"><House aria-hidden="true" />Về nhà</Link>
         <div className="c3-top-right">
           <button type="button" className="c3-pill c3-profile-pill" onClick={() => setEditing(true)} title="Sửa tên và nhân vật">{profile.gender === "female" ? "👩" : "👨"}<span>{profile.name}</span></button>
           <button type="button" className="c3-pill c3-sky-pill" onClick={() => setSky(nextSky)} title={`Đổi sang ${SKY_LABELS[nextSky].toLowerCase()}`}><SkyIcon aria-hidden="true" /><span>{SKY_LABELS[sky]}</span></button>

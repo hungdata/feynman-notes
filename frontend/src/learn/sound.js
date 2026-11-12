@@ -111,3 +111,52 @@ export const playSound = (name, level = 1) => {
   } catch { /* audio not available */ }
   if (name === "wrong") navigator.vibrate?.(60);
 };
+
+/* ---------- a soft wind that keeps blowing (the study upstairs, with its window open) ---------- */
+
+let breeze = null;
+
+/** Starts or stops the wind. Calling it again while it blows is harmless; muting the sound stops it. */
+export const setWind = (on) => {
+  if (!on || !isSoundOn()) {
+    if (!breeze) return;
+    const { ctx, gain, parts } = breeze;
+    breeze = null;
+    gain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.3);
+    window.setTimeout(() => parts.forEach((part) => { try { part.stop(); } catch { /* already stopped */ } }), 1400);
+    return;
+  }
+  if (breeze) return;
+  const ctx = audio();
+  if (!ctx) return;
+  // Two seconds of soft noise, looped, through a filter that slowly opens and closes like gusts.
+  const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  let previous = 0;
+  for (let i = 0; i < data.length; i += 1) {
+    previous = previous * 0.97 + (Math.random() * 2 - 1) * 0.03;
+    data[i] = previous * 6;
+  }
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.loop = true;
+  const filter = ctx.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = 520;
+  filter.Q.value = 0.5;
+  const gain = ctx.createGain();
+  gain.gain.value = 0.0001;
+  gain.gain.setTargetAtTime(0.05, ctx.currentTime, 0.8);
+  const gust = ctx.createOscillator();
+  gust.frequency.value = 0.11;
+  const depth = ctx.createGain();
+  depth.gain.value = 260;
+  gust.connect(depth).connect(filter.frequency);
+  const swell = ctx.createGain();
+  swell.gain.value = 0.022;
+  gust.connect(swell).connect(gain.gain);
+  source.connect(filter).connect(gain).connect(ctx.destination);
+  source.start();
+  gust.start();
+  breeze = { ctx, gain, parts: [source, gust] };
+};
