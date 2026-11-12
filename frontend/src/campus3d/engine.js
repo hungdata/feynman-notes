@@ -4,13 +4,14 @@
  * and listens for "you are at a door".
  */
 import * as THREE from "three";
-import { BENCHES, BOUNDS, BUILDINGS, COURT, DOOR_WEIGHTS, EDGES, ENTER_RANGE, FLAG, GATE, LAMPS, NODES, OUTDOOR_CLASS, PATHS, PITCH, PLAYER_RADIUS, PLAZA, ROAD, SKIES, SPAWN, TREES, buildColliders, doorOf } from "./world.js";
-import { angleDelta, headingOf, moveWithCollisions, nearestDoor, segmentHitsBox, steer, turnToward } from "./movement.js";
+import { BENCHES, BOUNDS, BUILDINGS, COURT, DECK, DOOR_WEIGHTS, EDGES, ENTER_RANGE, FENCE, FLAG, GATE, LAKE, LAMPS, NEIGHBOURS, NODES, OUTDOOR_CLASS, PATHS, PIER, PITCH, PLAYER_RADIUS, PLAZA, ROAD, SKIES, SPAWN, STALL, TREES, buildColliders, doorOf, onDeck } from "./world.js";
+import { angleDelta, headingOf, moveWithCollisions, nearestDoor, reconcilePosition, segmentHitsBox, steer, turnToward } from "./movement.js";
 import { HOOP_HEIGHT, buildGraph, createBasketball, createFootball, createStudent, stepBasketball, stepFootball, stepStudent } from "./npc.js";
 import { PLAYER_LOOK, canvasTexture, characterLook, createKit, poseStudent, seatStudent, studentLook } from "./builders.js";
 
 const WALK_SPEED = 5.8;
 const RUN_SPEED = 10;
+const CAST_REACH = 7.5;
 const GREETINGS = ["Chào bạn!", "Đi học thôi!", "Hôm nay học gì?", "Sắp vào lớp rồi!", "Cố lên nha!", "Học vui nhé!"];
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -40,6 +41,7 @@ const glowTexture = (inner, outer = "rgba(255,255,255,0)") => canvasTexture(128,
  * options.start     { x, z, heading } - where to stand (defaults to the gate)
  * options.onNear    (building | null) - the door Enter would open
  * options.onMap     ({ x, z, heading, students: [x, z, ...] }) - for the mini map
+ * options.onEnvironment ({ atLake, onDeck, nearShop }) - changed outdoor interactions
  * options.onSound   (name, level) - footsteps, kicks, bounces
  * options.profile   { id, name, gender } - the server-reserved character
  * options.online    { connected, snapshot } - live, shared authoritative state
@@ -157,7 +159,7 @@ export const startWorld = (container, options) => {
   scene.add(dashes);
 
   // Fence around the school, open at the gate.
-  const fenceAt = { minX: BOUNDS.minX - 1.4, maxX: BOUNDS.maxX + 1.4, minZ: BOUNDS.minZ - 1.4, maxZ: GATE.z };
+  const fenceAt = FENCE;
   const posts = [];
   for (let x = fenceAt.minX; x <= fenceAt.maxX + 0.1; x += 4.2) {
     posts.push([x, fenceAt.minZ]);
@@ -208,8 +210,15 @@ export const startWorld = (container, options) => {
   const ROOFS = ["#c0563f", "#4b6cb7", "#b3562f", "#3f8f6b", "#8a5fbf"];
   for (let i = 0; i < 15; i += 1) {
     const w = 11 + look() * 7;
-    scene.add(kit.house(-190 + i * 27 + look() * 5, ROAD.z + 15 + look() * 6, w, 7 + look() * 6, 10, HOUSES[i % 5], ROOFS[(i * 2) % 5]));
+    const x = -190 + i * 27 + look() * 5;
+    const z = ROAD.z + 15 + look() * 6;
+    const tall = 7 + look() * 6;
+    if (Math.abs(x) > 96) scene.add(kit.house(x, z, w, tall, 10, HOUSES[i % 5], ROOFS[(i * 2) % 5]));
   }
+  // The street outside the gate: neighbours, the lake with its pier, and the tackle stall.
+  for (const [x, z, w, tall, d, wall, roof] of NEIGHBOURS) scene.add(kit.house(x, z, w, tall, d, wall, roof, 1));
+  const lake = kit.lake(LAKE);
+  scene.add(lake, kit.pier(PIER, DECK), kit.stall(STALL));
   // Soft hills far away.
   const hillPaint = new THREE.MeshLambertMaterial({ color: new THREE.Color(sky.ground).lerp(new THREE.Color(sky.fog), 0.45), flatShading: true });
   for (let i = 0; i < 9; i += 1) {
@@ -360,6 +369,43 @@ export const startWorld = (container, options) => {
   const view = { yaw: options.start?.yaw ?? 0, pitch: 0.36, distance: 18, focus: new THREE.Vector3(player.x, 1.7, player.z) };
   let auto = null;
 
+  /* ---------- fishing tackle: a rod in the hands, a line, a float on the water ---------- */
+
+  const linePaint = new THREE.LineBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85 });
+  const tackleFor = (figure) => {
+    const rod = kit.rod();
+    rod.position.set(0.42, 1.2, 0.25);
+    rod.rotation.x = 0.95;
+    figure.add(rod);
+    const float = kit.bobber();
+    const line = new THREE.Line(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)), linePaint);
+    line.frustumCulled = false;
+    scene.add(float, line);
+    return { rod, float, line, shown: false };
+  };
+  const tipSpot = new THREE.Vector3();
+  /** Draws the tackle of one angler. `float` is where the float is, or null to put everything away. */
+  const drawTackle = (tackle, figure, float) => {
+    tackle.rod.visible = tackle.float.visible = tackle.line.visible = Boolean(float);
+    if (!float) return;
+    figure.userData.parts.armR.rotation.x = -1.25;
+    figure.userData.parts.armL.rotation.x = -1.0;
+    figure.updateMatrixWorld(true);
+    tackle.rod.userData.tip.getWorldPosition(tipSpot);
+    tackle.float.position.set(float.x, float.y, float.z);
+    const points = tackle.line.geometry.attributes.position;
+    points.setXYZ(0, tipSpot.x, tipSpot.y, tipSpot.z);
+    points.setXYZ(1, float.x, float.y + 0.15, float.z);
+    points.needsUpdate = true;
+  };
+  const myTackle = tackleFor(hero);
+  drawTackle(myTackle, hero, null);
+  const splash = kit.doorRing();
+  splash.material = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+  scene.add(splash);
+  let fishing = null;      // { phase, since } while the player's line is out
+  let splashAge = 9;
+
   // These figures represent signed-in browsers only. The strolling pupils
   // remain scenery and are never counted as connected people.
   const visitors = new Map();
@@ -444,6 +490,7 @@ export const startWorld = (container, options) => {
   const cameraSpot = new THREE.Vector3();
   const headSpot = new THREE.Vector3();
   let near = null;
+  let lastEnvironment = null;
   let mapTimer = 0;
   let clockTimer = 0;
   let elapsed = 0;
@@ -482,6 +529,9 @@ export const startWorld = (container, options) => {
         player.z += direction.z * move;
         speed = 6.5;
       }
+    } else if (fishing) {
+      // Keep the rod and line anchored while facing the open water.
+      player.heading = turnToward(player.heading, 0, 9 * dt);
     } else {
       direction = steer(input, view.yaw);
       const next = moveWithCollisions(player, direction.x * speed * dt, direction.z * speed * dt, PLAYER_RADIUS, colliders, BOUNDS);
@@ -694,6 +744,37 @@ export const startWorld = (container, options) => {
     basketBall.rotation.x += dt * 5;
   };
 
+  /** The player's own line: flies out, floats, dips on a bite, zig-zags while reeling. */
+  const drawFishing = (dt) => {
+    if (myTackle.rod.parent !== hero) hero.add(myTackle.rod);
+    splashAge += dt;
+    splash.visible = splashAge < 0.7;
+    if (splash.visible) {
+      splash.scale.setScalar(0.25 + splashAge * 1.6);
+      splash.material.opacity = 0.85 * (1 - splashAge / 0.7);
+    }
+    if (!fishing) { drawTackle(myTackle, hero, null); return; }
+    const age = elapsed - fishing.since;
+    const target = { x: player.x, y: 0.14, z: player.z + CAST_REACH };
+    let float = target;
+    if (fishing.phase === "cast") {
+      const t = clamp(age / 0.55, 0, 1);
+      float = { x: player.x, y: 0.14 + (1 - t) * 3 + Math.sin(Math.PI * t) * 2.2, z: player.z + 2.8 + (CAST_REACH - 2.8) * t };
+      if (t >= 1 && !fishing.landed) { fishing.landed = true; splashAge = 0; splash.position.set(target.x, 0.12, target.z); sound("tick", target, 40); }
+    } else if (fishing.phase === "wait") {
+      float = { ...target, y: 0.14 + Math.sin(elapsed * 2.4) * 0.05 };
+    } else if (fishing.phase === "nibble") {
+      float = { ...target, y: 0.14 - Math.abs(Math.sin(age * 16)) * 0.12 };
+    } else if (fishing.phase === "bite") {
+      float = { ...target, y: -0.16 + Math.sin(age * 30) * 0.04 };
+    } else if (fishing.phase === "reel") {
+      const pull = clamp(fishing.progress ?? 0, 0, 1);
+      float = { x: target.x + Math.sin(elapsed * 5.3) * 1.5 * (1 - pull * 0.5), y: -0.05 + Math.sin(elapsed * 11) * 0.06, z: player.z + CAST_REACH - pull * 4 };
+      if (splashAge > 0.5) { splashAge = 0; splash.position.set(float.x, 0.12, float.z); }
+    }
+    drawTackle(myTackle, hero, float);
+  };
+
   const dressScene = (dt) => {
     // Walls between the camera and the player turn see-through.
     headSpot.set(player.x, 1.6, player.z);
@@ -718,7 +799,17 @@ export const startWorld = (container, options) => {
       school.sign.scale.copy(school.sign.userData.size).multiplyScalar(clamp(far / 44, 1, 2.1));
     }
 
-    const door = auto ? null : nearestDoor(player, doors, ENTER_RANGE);
+    const environment = {
+      atLake: !auto && Math.abs(player.x - LAKE.x) <= LAKE.w / 2 + 8 && Math.abs(player.z - LAKE.z) <= LAKE.d / 2 + 10,
+      onDeck: !auto && onDeck(player),
+      nearShop: !auto && Math.hypot(player.x - STALL.x, player.z - STALL.z) <= 5.5,
+    };
+    if (!lastEnvironment || Object.keys(environment).some((key) => environment[key] !== lastEnvironment[key])) {
+      lastEnvironment = environment;
+      options.onEnvironment?.(environment);
+    }
+
+    const door = auto || fishing ? null : nearestDoor(player, doors, ENTER_RANGE);
     if ((door?.id || null) !== (near?.id || null)) {
       near = door;
       options.onNear?.(door ? schools.find((school) => school.door.id === door.id).spec : null);
@@ -784,6 +875,7 @@ export const startWorld = (container, options) => {
       view.distance = sport ? 40 : 18;
     }
     const field = sport === "football" ? PITCH : sport === "basketball" ? COURT : null;
+    if (fishing && !field) view.yaw += angleDelta(view.yaw, Math.PI) * ease(2.2, dt);
     // A match uses a raised view of the whole field. Both goals, the other
     // players and the shared ball stay visible while the control dock is open.
     if (field) {
@@ -818,6 +910,7 @@ export const startWorld = (container, options) => {
       playGames(dt);
       moveCamera(dt);
     }
+    drawFishing(total);
     dressScene(total);
     renderer.render(scene, camera);
 
@@ -844,6 +937,14 @@ export const startWorld = (container, options) => {
       ring.visible = false;
       return true;
     },
+    /** The state of the player's fishing line: null, or { phase, progress }. */
+    fishing(state) {
+      if (!state) { fishing = null; return; }
+      if (!fishing || fishing.phase !== state.phase) {
+        if (state.phase === "bite" || state.phase === "nibble") { splashAge = 0; splash.position.set(player.x, 0.12, player.z + CAST_REACH); }
+        fishing = { ...state, since: elapsed, landed: state.phase !== "cast" };
+      } else fishing.progress = state.progress;
+    },
     /** Stops drawing while the next page loads, so the browser is free to load it. */
     pause() {
       renderer.setAnimationLoop(null);
@@ -867,6 +968,14 @@ export const startWorld = (container, options) => {
     /** Where the player stands, to come back to the same spot later. */
     where() {
       return { x: player.x, z: player.z, heading: player.heading, yaw: view.yaw, moving: player.amount > 0.2 };
+    },
+    /** Correct an acknowledged move without changing the camera or discarding later input. */
+    reconcile(accepted, sent) {
+      if (auto) return;
+      const safe = reconcilePosition(player, accepted, sent, PLAYER_RADIUS, colliders, BOUNDS);
+      player.x = safe.x;
+      player.z = safe.z;
+      hero.position.set(player.x, 0, player.z);
     },
     /** Only server-approved joins/reconnects should move a character instantly. */
     teleport(at) {

@@ -184,6 +184,7 @@ const Player = ({ course, stage, lesson, progress }) => {
                   <div className="is-streak"><span><Flame /> Chuỗi ngày</span><strong>{finish.learner?.streak || 1} ngày</strong></div>
                 </div>
               )}
+              {finish.gold > 0 && <p className="ln-finish-combo">🪙 +{finish.gold} vàng · Dùng để nâng cấp cần câu bên hồ</p>}
               {bestCombo >= 3 && <p className="ln-finish-combo"><Flame /> Chuỗi đúng dài nhất: {bestCombo} câu</p>}
               <div className="ln-finish-actions">
                 {next ? (

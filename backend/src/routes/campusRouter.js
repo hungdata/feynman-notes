@@ -4,8 +4,11 @@ import { SESSION_COOKIE } from "../auth/requireAuth.js";
 import { getStore } from "../storage/index.js";
 import { CampusError, validateProfile } from "../campus/profiles.js";
 import { createProfileCache } from "../campus/profileCache.js";
+import { EconomyError, FISH, RARITY_NAMES, RODS, buyRod, dropCast, finishCast, getWallet, startCast } from "../campus/economy.js";
+import { onDeck } from "../../../frontend/src/campus3d/world.js";
 
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res)).catch(next);
+const CATALOG = { rods: RODS, fish: FISH.map(({ id, name, rarity }) => ({ id, name, rarity })), rarities: RARITY_NAMES };
 
 export const createCampusRouter = (runtime) => {
   const router = express.Router();
@@ -37,6 +40,12 @@ export const createCampusRouter = (runtime) => {
     runtime.updateProfile(profile);
     res.json({ profile });
   }));
+  router.get("/wallet", asyncRoute(async (req, res) => {
+    res.json({ wallet: await getWallet(req.campusUser.id), catalog: CATALOG });
+  }));
+  router.post("/shop/rod", asyncRoute(async (req, res) => {
+    res.json(await buyRod(req.campusUser.id, String(req.body?.rod || "")));
+  }));
   router.use((req, _res, next) => {
     profiles.get(req.campusUser.id).then((profile) => {
       if (!profile) throw new CampusError("Tạo nhân vật trước khi vào sân trường.", 409, "CHARACTER_REQUIRED");
@@ -60,8 +69,25 @@ export const createCampusRouter = (runtime) => {
   router.post("/action", (req, res, next) => {
     try { res.json(runtime.action(req.campusProfile.id, req.body)); } catch (error) { next(error); }
   });
+  const requireDeck = (req) => {
+    const player = runtime.players.get(req.campusProfile.id);
+    if (!player || !player.streams.size) throw new CampusError("Kết nối lại sân trường trước khi câu cá.", 409, "CAMPUS_DISCONNECTED");
+    if (player.sport || !onDeck(player)) throw new EconomyError("Đến sàn câu ở cuối cầu gỗ để thả câu.", "FISHING_DECK_REQUIRED", 409);
+  };
+  router.post("/fishing/cast", asyncRoute(async (req, res) => {
+    requireDeck(req);
+    res.status(201).json(await startCast(req.campusUser.id));
+  }));
+  router.post("/fishing/catch", asyncRoute(async (req, res) => {
+    requireDeck(req);
+    res.json(await finishCast(req.campusUser.id, String(req.body?.castId || "")));
+  }));
+  router.post("/fishing/release", asyncRoute(async (req, res) => {
+    await dropCast(req.campusUser.id, String(req.body?.castId || ""));
+    res.status(204).end();
+  }));
   router.use((error, _req, res, next) => {
-    if (!(error instanceof CampusError)) return next(error);
+    if (!(error instanceof CampusError) && !(error instanceof EconomyError)) return next(error);
     return res.status(error.status).type("json").json({ message: error.message, code: error.code });
   });
   return router;

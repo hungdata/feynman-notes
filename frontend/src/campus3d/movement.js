@@ -62,6 +62,19 @@ export const moveWithCollisions = (position, dx, dz, radius, colliders, bounds) 
   return { x: clamp(x, bounds.minX + radius, bounds.maxX - radius), z: clamp(z, bounds.minZ + radius, bounds.maxZ - radius) };
 };
 
+/** Replay movement since a packet was sent from the position the server accepted.
+ * Small rejected moves matter at narrow corners, including the fishing deck.
+ */
+export const reconcilePosition = (position, accepted, sent, radius, colliders, bounds) => {
+  if (!accepted || !sent || ![accepted.x, accepted.z, sent.x, sent.z].every(Number.isFinite)) return { x: position.x, z: position.z };
+  const dx = position.x - sent.x;
+  const dz = position.z - sent.z;
+  const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.3));
+  let next = moveWithCollisions(accepted, 0, 0, radius, colliders, bounds);
+  for (let step = 0; step < steps; step += 1) next = moveWithCollisions(next, dx / steps, dz / steps, radius, colliders, bounds);
+  return next;
+};
+
 /** Does the straight line from a to b pass through a box of the given height? Used to fade walls that hide the player. */
 export const segmentHitsBox = (a, b, box) => {
   let tMin = 0;

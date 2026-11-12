@@ -1,19 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, DoorOpen, House, MapPin, Moon, Rabbit, RefreshCw, Sun, Sunrise, Sunset, Users, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Coins, Copy, DoorOpen, Fish, House, MapPin, Moon, Rabbit, RefreshCw, Store, Sun, Sunrise, Sunset, Users, X } from "lucide-react";
 import "@fontsource-variable/lexend";
 import "@fontsource/patrick-hand/vietnamese-400.css";
 import "@fontsource/patrick-hand/latin-400.css";
 import "../styles/mindmap.css";
 import "../styles/learn.css";
 import "../styles/campus3d.css";
+import "../styles/fishing.css";
 import { timeOfDay } from "../campus/scene";
-import { BOUNDS, BUILDINGS, COURT, PATHS, PITCH, PLAZA, SPAWN, doorOf } from "../campus3d/world";
+import { BOUNDS, BUILDINGS, COURT, DECK, LAKE, NEIGHBOURS, PATHS, PIER, PITCH, PLAZA, SPAWN, doorOf } from "../campus3d/world";
 import { SoundToggle } from "../learn/LearnChrome";
 import { playSound } from "../learn/sound";
 import CharacterLobby from "../campus3d/CharacterLobby";
 import { useCampusOnline } from "../campus3d/online";
 import { idealBasketPower, hoopFor } from "../../../shared/campusSports.mjs";
+import { buyRod, getWallet } from "../campus3d/fishingApi";
+import { useFishing } from "../campus3d/useFishing";
+import { CatchCard, ReelBar, TackleShop } from "../campus3d/FishingHud";
 
 const PLACE_KEY = "feynman.campus3d.place";
 const SKY_ORDER = ["morning", "day", "evening", "night"];
@@ -34,7 +38,7 @@ const savePlace = (place) => {
 
 /* ---------- mini map ---------- */
 
-const MAP = { minX: -88, maxX: 88, minZ: -58, maxZ: 92, width: 176 };
+const MAP = { minX: -88, maxX: 88, minZ: -58, maxZ: 168, width: 150 };
 MAP.scale = MAP.width / (MAP.maxX - MAP.minX);
 MAP.height = Math.round((MAP.maxZ - MAP.minZ) * MAP.scale);
 const mapX = (x) => (x - MAP.minX) * MAP.scale;
@@ -55,6 +59,12 @@ const paintMapBase = () => {
   ctx.beginPath();
   ctx.arc(mapX(PLAZA.x), mapY(PLAZA.z), PLAZA.r * MAP.scale, 0, Math.PI * 2);
   ctx.fill();
+  ctx.fillStyle = "#5fb4ee";
+  ctx.fillRect(mapX(LAKE.x - LAKE.w / 2), mapY(LAKE.z - LAKE.d / 2), LAKE.w * MAP.scale, LAKE.d * MAP.scale);
+  ctx.fillStyle = "#a9794d";
+  for (const part of [PIER, DECK]) ctx.fillRect(mapX(part.x - part.w / 2), mapY(part.z - part.d / 2), part.w * MAP.scale, part.d * MAP.scale);
+  ctx.fillStyle = "#c9c4b8";
+  for (const [x, z, w, , d] of NEIGHBOURS) ctx.fillRect(mapX(x - w / 2), mapY(z - d / 2), w * MAP.scale, d * MAP.scale);
   ctx.fillStyle = "#57b96a";
   ctx.fillRect(mapX(PITCH.x - PITCH.w / 2), mapY(PITCH.z - PITCH.d / 2), PITCH.w * MAP.scale, PITCH.d * MAP.scale);
   ctx.fillStyle = "#e79457";
@@ -160,6 +170,8 @@ const PadKey = ({ name, label, icon: Icon, onHold }) => (
 const SPORT_NAMES = { football: "Bóng đá", basketball: "Bóng rổ" };
 const basketPower = (player) => player ? idealBasketPower(player) : 0.7;
 const isTyping = (target) => target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+const FISHING_LABELS = { idle: "Thả câu", cast: "Đang thả câu…", wait: "Chờ cá cắn…", nibble: "Cá đang rỉa mồi…", bite: "Giật!", reel: "Giữ để kéo", landing: "Đang nhận cá…", caught: "Thả câu tiếp" };
+const FISHING_HINTS = { idle: "Thả câu, chờ phao chìm hẳn rồi giật.", cast: "", wait: "Nhìn phao. Khi phao chìm hẳn thì nhấn Giật.", nibble: "Cá mới rỉa thôi, khoan giật!", bite: "Phao chìm rồi, giật ngay!", reel: "Giữ nút hoặc Space để nâng khung xanh, thả để hạ. Giữ con cá trong khung.", landing: "", caught: "" };
 
 const Campus3DPage = () => {
   const navigate = useNavigate();
@@ -167,7 +179,7 @@ const Campus3DPage = () => {
   const worldRef = useRef(null);
   const mapRef = useRef(null);
   const inputRef = useRef({ x: 0, y: 0, run: false });
-  const heldRef = useRef({ keys: new Set(), pad: new Set(), shift: false, runLock: false });
+  const heldRef = useRef({ keys: new Set(), pad: new Set(), shift: false, runLock: false, locked: false });
   const nearRef = useRef(null);
   const selfRef = useRef(null);
   const leavingRef = useRef(false);
@@ -187,20 +199,39 @@ const Campus3DPage = () => {
   const [actionBusy, setActionBusy] = useState(false);
   const [charge, setCharge] = useState(null);
   const [copied, setCopied] = useState(false);
-  const { onlineRef, snapshot, connection, error, action, reconnect } = useCampusOnline(profile, worldRef, Boolean(profile) && !editing);
+  const [environment, setEnvironment] = useState({ atLake: false, onDeck: false, nearShop: false });
+  const [purse, setPurse] = useState(null);
+  const [shopOpen, setShopOpen] = useState(false);
+  const { onlineRef, snapshot, connection, error, action, reconnect, syncPosition } = useCampusOnline(profile, worldRef, Boolean(profile) && !editing);
   const self = snapshot?.players.find((player) => player.id === snapshot.selfId);
   selfRef.current = self;
   const sport = self?.sport;
   const connected = connection === "connected";
+  const atLake = environment.onDeck && !sport && !editing;
+  const updateWallet = useCallback((wallet) => setPurse((current) => current ? { ...current, wallet } : current), []);
+  const fishing = useFishing({ worldRef, atLake, onWallet: updateWallet, beforeCast: syncPosition });
+  const { press: fishPress, release: fishRelease } = fishing;
+
+  useEffect(() => {
+    if (!profile) return undefined;
+    let active = true;
+    getWallet().then((value) => { if (active) setPurse(value); }).catch(() => {});
+    return () => { active = false; };
+  }, [profile]);
 
   const syncInput = useCallback(() => {
     const held = heldRef.current;
-    const on = (name) => (held.keys.has(name) || held.pad.has(name) ? 1 : 0);
+    const on = (name) => (!held.locked && (held.keys.has(name) || held.pad.has(name)) ? 1 : 0);
     inputRef.current.x = on("right") - on("left");
     inputRef.current.y = on("up") - on("down");
     inputRef.current.run = held.shift || held.runLock;
     if (inputRef.current.x || inputRef.current.y) setMoved(true);
   }, []);
+
+  useEffect(() => {
+    heldRef.current.locked = fishing.busy || shopOpen;
+    syncInput();
+  }, [fishing.busy, shopOpen, syncInput]);
 
   const go = useCallback((building) => {
     if (!building || leavingRef.current) return;
@@ -244,6 +275,7 @@ const Campus3DPage = () => {
           start: readPlace() || SPAWN,
           onNear: (building) => { nearRef.current = building; setNear(building); },
           onMap: (value) => mapRef.current?.(value),
+          onEnvironment: setEnvironment,
           onSound: playSound,
         });
         worldRef.current = world;
@@ -310,11 +342,16 @@ const Campus3DPage = () => {
     if (!profile || editing || status !== "ready") return undefined;
     const held = heldRef.current;
     const onKeyDown = (event) => {
-      if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey || shopOpen) return;
       if (event.key === "Shift") { held.shift = true; syncInput(); return; }
       const move = MOVE_KEYS[event.key];
       if (move) { event.preventDefault(); held.keys.add(move); syncInput(); return; }
       const onControl = event.target instanceof HTMLElement && event.target.closest("button, a, summary");
+      if (event.code === "Space" && !onControl && atLake) {
+        event.preventDefault();
+        if (!event.repeat) fishPress();
+        return;
+      }
       if (event.code === "Space" && !onControl && selfRef.current?.sport) {
         event.preventDefault();
         if (!event.repeat) beginCharge();
@@ -323,10 +360,10 @@ const Campus3DPage = () => {
       if ((event.key === "Enter" && !onControl) || event.key === "e" || event.key === "E") {
         if (!selfRef.current?.sport && nearRef.current) { event.preventDefault(); go(nearRef.current); }
       }
-      if (event.key === "Escape") { setPlacesOpen(false); setRosterOpen(false); }
+      if (event.key === "Escape") { setPlacesOpen(false); setRosterOpen(false); setShopOpen(false); }
     };
     const onKeyUp = (event) => {
-      if (event.code === "Space") finishCharge();
+      if (event.code === "Space") { fishRelease(); finishCharge(); }
       if (event.key === "Shift") held.shift = false;
       const move = MOVE_KEYS[event.key];
       if (move) held.keys.delete(move);
@@ -335,6 +372,7 @@ const Campus3DPage = () => {
     const release = () => {
       held.keys.clear(); held.pad.clear(); held.shift = false;
       chargeStartRef.current = null; setCharge(null);
+      fishRelease();
       syncInput();
     };
     window.addEventListener("keydown", onKeyDown);
@@ -348,7 +386,7 @@ const Campus3DPage = () => {
       document.removeEventListener("visibilitychange", release);
       release();
     };
-  }, [go, syncInput, profile, editing, status, beginCharge, finishCharge]);
+  }, [go, syncInput, profile, editing, status, beginCharge, finishCharge, atLake, fishPress, fishRelease, shopOpen]);
 
   useEffect(() => {
     if (!connected || status !== "ready" || autoJoinRef.current) return;
@@ -385,6 +423,7 @@ const Campus3DPage = () => {
   const game = sport ? snapshot?.[sport] : null;
   const activePlayers = snapshot?.players.filter((player) => player.sport === sport) || [];
   const idealPower = basketPower(self);
+  const fishingHint = atLake ? (fishing.note || FISHING_HINTS[fishing.phase]) : "Đi ra cuối cầu gỗ để thả câu. Tiệm cần câu ở cạnh đầu cầu.";
 
   return (
     <div className={`c3-shell is-${sky} ${sport ? "has-sport" : ""}`}>
@@ -402,8 +441,9 @@ const Campus3DPage = () => {
         </div>
         <Link className="c3-pill" to="/nha" title="Về nhà: bàn học bên cửa sổ tầng 2, kệ sách, giường"><House aria-hidden="true" />Về nhà</Link>
         <div className="c3-top-right">
+          {purse && <span className="c3-pill c3-purse" title="Vàng của bạn"><Coins aria-hidden="true" />{purse.wallet.gold}</span>}
           <button type="button" className="c3-pill c3-profile-pill" onClick={() => setEditing(true)} title="Sửa tên và nhân vật">{profile.gender === "female" ? "👩" : "👨"}<span>{profile.name}</span></button>
-          <button type="button" className="c3-pill c3-sky-pill" onClick={() => setSky(nextSky)} title={`Đổi sang ${SKY_LABELS[nextSky].toLowerCase()}`}><SkyIcon aria-hidden="true" /><span>{SKY_LABELS[sky]}</span></button>
+          <button type="button" className="c3-pill c3-sky-pill" disabled={fishing.phase === "landing"} onClick={() => { fishing.stop(); setSky(nextSky); }} title={`Đổi sang ${SKY_LABELS[nextSky].toLowerCase()}`}><SkyIcon aria-hidden="true" /><span>{SKY_LABELS[sky]}</span></button>
           <span className="c3-pill c3-sound"><SoundToggle /></span>
         </div>
       </header>
@@ -420,8 +460,9 @@ const Campus3DPage = () => {
       {status === "failed" && <div className="c3-failed" role="alert"><h1>Máy này chưa bật được đồ họa 3D</h1><p>Trình duyệt không tạo được khung vẽ WebGL. Bạn vẫn vào các trường được từ sân trường thường.</p><Link className="c3-enter" to="/">Về sân trường</Link></div>}
       {status === "ready" && <>
         <div className="c3-prompt" aria-live="polite">
-          {!sport && (near ? <button type="button" className="c3-enter" onClick={() => go(near)}><DoorOpen aria-hidden="true" />Vào {near.name}<kbd>Enter</kbd></button> : !moved && <p className="c3-hint"><span className="c3-for-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> để đi · Shift để chạy</span><span className="c3-for-touch">Giữ mũi tên để đi</span><span>Kéo màn hình để xoay góc nhìn</span></p>)}
+          {!sport && !environment.atLake && (near ? <button type="button" className="c3-enter" onClick={() => go(near)}><DoorOpen aria-hidden="true" />Vào {near.name}<kbd>Enter</kbd></button> : !moved && <p className="c3-hint"><span className="c3-for-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> để đi · Shift để chạy</span><span className="c3-for-touch">Giữ mũi tên để đi</span><span>Kéo màn hình để xoay góc nhìn</span></p>)}
         </div>
+        {(!environment.atLake || sport) && (
         <section className="c3-sports-hud" aria-label={sport ? `Trận ${SPORT_NAMES[sport].toLowerCase()}` : "Chọn môn thể thao"}>
           {sport ? <>
             <div className="c3-match-banner"><div className="c3-match-top"><span>{sport === "football" ? "⚽" : "🏀"} {SPORT_NAMES[sport]}<small>{activePlayers.length} người chơi thật</small></span><div className="c3-match-score" aria-label={`Đội đỏ ${game?.score?.[0] || 0}, đội xanh ${game?.score?.[1] || 0}`}><span className="is-red">Đỏ</span><strong>{game?.score?.[0] || 0}<em>:</em>{game?.score?.[1] || 0}</strong><span className="is-blue">Xanh</span></div><button type="button" className="c3-exit-match" disabled={!connected || actionBusy} onClick={() => { void perform({ type: "leave" }); }} aria-label="Rời sân chơi"><X size={18} /></button></div>
@@ -434,7 +475,28 @@ const Campus3DPage = () => {
           </> : <><div className="c3-play-heading"><strong>Ra sân chơi một chút?</strong><span>Chung bóng, chung tỉ số với mọi người.</span></div><div className="c3-sport-buttons"><button type="button" disabled={!connected || actionBusy} onClick={() => { void perform({ type: "join", sport: "football" }); }}><span>⚽</span><strong>Bóng đá<small>Vào sân và sút ngay</small></strong></button><button type="button" disabled={!connected || actionBusy} onClick={() => { void perform({ type: "join", sport: "basketball" }); }}><span>🏀</span><strong>Bóng rổ<small>Rê bóng và ném rổ</small></strong></button></div></>}
           {error && <p className="c3-game-error" role="alert">{error}</p>}
           {!connected && <p className="c3-game-error" role="status">Kết nối đang gián đoạn. Trận đấu sẽ tiếp tục khi vào lại máy chủ.</p>}
+          {!sport && <p className="c3-lake-directions"><Fish size={15} aria-hidden="true" />Hồ câu ngoài cổng trường: đi qua đường làng, rẽ phải tới cầu gỗ. Nhà của bạn ở bên trái.</p>}
         </section>
+        )}
+        {environment.atLake && !sport && (
+          <section className="c3-fishing-hud" aria-label="Câu cá ngoài trường">
+            {fishingHint && <p className="c3-hint" role="status">{fishingHint}</p>}
+            <div className="c3-fishing-controls">
+              {atLake && <button type="button" className={`c3-enter c3-fish-button ${fishing.phase === "bite" ? "is-hot" : ""}`} disabled={!connected || ["cast", "landing"].includes(fishing.phase)}
+                onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture?.(event.pointerId); fishPress(); }}
+                onPointerUp={fishRelease} onPointerCancel={fishRelease} onLostPointerCapture={fishRelease} onBlur={fishRelease}
+                onKeyDown={(event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); if (!event.repeat) fishPress(); } }}
+                onKeyUp={(event) => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); fishRelease(); } }}
+                onContextMenu={(event) => event.preventDefault()}><Fish aria-hidden="true" />{FISHING_LABELS[fishing.phase]}<kbd>Space</kbd></button>}
+              {fishing.busy && <button type="button" className="c3-pill" disabled={fishing.phase === "landing"} onClick={() => fishing.stop()}>Thu câu</button>}
+              {purse && !fishing.busy && <button type="button" className="c3-pill" onClick={() => setShopOpen(true)}><Store aria-hidden="true" />Tiệm cần câu</button>}
+            </div>
+            {!connected && <p className="c3-game-error" role="status">Chờ kết nối lại để thả câu.</p>}
+          </section>
+        )}
+        {atLake && fishing.phase === "reel" && <ReelBar barRef={fishing.barRef} />}
+        {atLake && fishing.phase === "caught" && fishing.result && <CatchCard result={fishing.result} onClose={fishing.dismiss} />}
+        {shopOpen && purse && <TackleShop wallet={purse.wallet} catalog={purse.catalog} onClose={() => setShopOpen(false)} onBuy={async (rod) => { const result = await buyRod(rod); updateWallet(result.wallet); }} />}
         <div className="c3-pad" role="group" aria-label="Nút di chuyển"><PadKey name="up" label="Đi lên" icon={ChevronUp} onHold={hold} /><PadKey name="left" label="Sang trái" icon={ChevronLeft} onHold={hold} /><PadKey name="down" label="Đi xuống" icon={ChevronDown} onHold={hold} /><PadKey name="right" label="Sang phải" icon={ChevronRight} onHold={hold} /></div>
         <button type="button" className={`c3-run ${running ? "is-on" : ""}`} aria-pressed={running} onClick={toggleRun}><Rabbit aria-hidden="true" />{running ? "Đang chạy" : "Chạy"}</button>
       </>}

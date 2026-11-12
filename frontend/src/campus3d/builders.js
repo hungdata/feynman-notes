@@ -354,15 +354,16 @@ export const createKit = (sky) => {
       group.add(box(w + 1.2, 0.5, d + 1.2, roofPaint, { y: top + 0.25 }));
       top += 0.5;
     } else {
-      const rise = spec.kind === "language" ? 3.4 : 3.8;
-      const ridge = spec.kind === "language" ? w + 1.6 : w * 0.56;
+      const gable = spec.kind === "language" || spec.kind === "home";
+      const rise = gable ? 3.4 : 3.8;
+      const ridge = gable ? w + 1.6 : w * 0.56;
       const roof = mesh(roofGeometry(w + 1.6, d + 1.8, rise, ridge), roofPaint, { y: top });
       group.add(roof);
       top += rise;
     }
 
     // Windows: one instanced mesh for the frames, one for the glass.
-    const low = spec.kind === "arcade" || spec.kind === "booth";
+    const low = spec.kind === "arcade" || spec.kind === "booth" || spec.kind === "home";
     const floors = low ? 1 : 2;
     const storey = h / floors;
     const doorWidth = spec.kind === "main" ? 4.4 : 3.4;
@@ -421,7 +422,7 @@ export const createKit = (sky) => {
     }
 
     // Name board above the door.
-    const signWidth = spec.kind === "main" ? 13 : spec.kind === "language" ? 8.6 : Math.min(w - 2.5, 10.5);
+    const signWidth = spec.kind === "main" ? 13 : spec.kind === "language" ? 8.6 : spec.kind === "home" ? 6.4 : Math.min(w - 2.5, 10.5);
     const signHeight = signWidth * (176 / 1024);
     const signY = spec.kind === "arcade" ? 6.55 : doorHeight + 1.2 + signHeight / 2 + 0.45;
     group.add(box(signWidth + 0.3, signHeight + 0.3, 0.2, mine("#ffffff"), { y: signY, z: front + 0.18 }));
@@ -505,6 +506,14 @@ export const createKit = (sky) => {
         group.add(stripe);
       }
       top += 3;
+    }
+    if (spec.kind === "home") {
+      // A chimney, a mailbox and a doormat: this one is yours.
+      group.add(box(1.3, 3.4, 1.3, mine("#b9735a"), { x: w / 2 - 2.6, y: h + 2.6, z: -1 }));
+      group.add(box(1.6, 0.3, 1.6, trim, { x: w / 2 - 2.6, y: h + 4.4, z: -1 }));
+      group.add(box(0.14, 1.3, 0.14, mine("#6b7280"), { x: -doorWidth / 2 - 2.2, y: 0.65, z: front + 3.2 }));
+      group.add(box(0.7, 0.45, 0.5, mine("#e5484d"), { x: -doorWidth / 2 - 2.2, y: 1.45, z: front + 3.2 }));
+      group.add(box(doorWidth - 0.6, 0.06, 1.1, mine("#3f8f6b"), { y: 0.29, z: front + 2.3, cast: false }));
     }
     if (spec.kind === "booth") {
       // A counter window and a turning coin on the roof.
@@ -774,14 +783,19 @@ export const createKit = (sky) => {
   };
 
   /** A plain house for the street outside the school. Its windows look north, at the campus. */
-  const house = (x, z, w, h, d, wallColor, roofColor) => {
+  const house = (x, z, w, h, d, wallColor, roofColor, face = -1) => {
     const group = new THREE.Group();
     group.position.set(x, 0, z);
     group.add(box(w, h, d, paint(wallColor), { y: h / 2 }));
     group.add(mesh(roofGeometry(w + 1, d + 1, h * 0.5, (w + 1) * 0.45), paint(roofColor, { flat: true }), { y: h }));
     const glass = paint(night ? "#ffd98a" : "#9fd0f5", { basic: true });
     const count = Math.max(2, Math.floor(w / 3.5));
-    for (let i = 0; i < count; i += 1) group.add(box(1.4, 1.7, 0.2, glass, { x: -w / 2 + (w / count) * (i + 0.5), y: h * 0.58, z: -d / 2 - 0.05, cast: false }));
+    for (let i = 0; i < count; i += 1) {
+      const wx = -w / 2 + (w / count) * (i + 0.5);
+      const door = face > 0 && i === Math.floor(count / 2);
+      if (door) group.add(box(1.7, 2.9, 0.2, paint("#6b4630"), { x: wx, y: 1.45, z: face * (d / 2 + 0.05), cast: false }));
+      else group.add(box(1.4, 1.7, 0.2, glass, { x: wx, y: h * 0.58, z: face * (d / 2 + 0.05), cast: false }));
+    }
     return group;
   };
 
@@ -792,6 +806,122 @@ export const createKit = (sky) => {
     group.add(box(10.05, 0.3, 2.95, paint("#1d2142"), { y: 1.2 }));
     group.add(box(9.2, 1, 2.96, paint(night ? "#ffe9a8" : "#bfe3fb", { basic: true }), { x: -0.2, y: 2.7, cast: false }));
     for (const wx of [-3.2, 3.2]) for (const wz of [-1.4, 1.4]) group.add(mesh(shape("wheel", () => new THREE.CylinderGeometry(0.62, 0.62, 0.4, 14).rotateX(Math.PI / 2)), paint("#22242e"), { x: wx, y: 0.62, z: wz }));
+    return group;
+  };
+
+  /* ---------- the lake ---------- */
+
+  const lake = (spec) => {
+    const group = new THREE.Group();
+    group.position.set(spec.x, 0, spec.z);
+    const outline = (w, d, r) => {
+      const outlineShape = new THREE.Shape();
+      const x = -w / 2;
+      const y = -d / 2;
+      outlineShape.moveTo(x + r, y);
+      outlineShape.lineTo(x + w - r, y);
+      outlineShape.quadraticCurveTo(x + w, y, x + w, y + r);
+      outlineShape.lineTo(x + w, y + d - r);
+      outlineShape.quadraticCurveTo(x + w, y + d, x + w - r, y + d);
+      outlineShape.lineTo(x + r, y + d);
+      outlineShape.quadraticCurveTo(x, y + d, x, y + d - r);
+      outlineShape.lineTo(x, y + r);
+      outlineShape.quadraticCurveTo(x, y, x + r, y);
+      return new THREE.ShapeGeometry(outlineShape, 10);
+    };
+    const bank = mesh(outline(spec.w + 2.4, spec.d + 2.4, 9), paint(night ? "#8a8468" : "#e6d6a8"), { y: 0.04, cast: false, receive: true });
+    bank.rotation.x = -Math.PI / 2;
+    const water = mesh(outline(spec.w, spec.d, 8), new THREE.MeshLambertMaterial({ color: night ? "#1f4f8a" : "#3fa2e0", transparent: true, opacity: 0.93 }), { y: 0.07, cast: false, receive: true });
+    water.rotation.x = -Math.PI / 2;
+    group.add(bank, water);
+    // Lily pads, reeds and stones, always at the same places.
+    const spots = [[-20, -10], [-14, 8], [-22, 4], [16, -11], [22, 6], [12, 11], [-6, 13], [24, -4], [-24, -3], [8, -13]];
+    spots.forEach(([x, z], index) => {
+      const pad = mesh(shape("lily", () => new THREE.CircleGeometry(0.9, 9, 0.4, Math.PI * 1.8)), paint(night ? "#2f6b4a" : "#4fb168", { side: THREE.DoubleSide }), { x, y: 0.1, z, cast: false });
+      pad.rotation.set(-Math.PI / 2, 0, index * 1.3);
+      pad.scale.setScalar(0.7 + (index % 3) * 0.25);
+      group.add(pad);
+      if (index % 3 === 0) group.add(mesh(shape("lotus", () => new THREE.IcosahedronGeometry(0.28, 0)), paint("#ff9fc4", { flat: true }), { x: x + 0.2, y: 0.3, z }));
+    });
+    const reed = paint(night ? "#3d6b3a" : "#5c9a47");
+    for (let i = 0; i < 36; i += 1) {
+      const along = (i / 36) * 2 - 1;
+      const side = i % 2 ? 1 : -1;
+      const x = i % 4 < 2 ? along * (spec.w / 2 - 2) : side * (spec.w / 2 - 0.4);
+      const z = i % 4 < 2 ? side * (spec.d / 2 - 0.4) : along * (spec.d / 2 - 2);
+      if (z < 0 && Math.abs(x) < 6) continue; // keep the pier clear
+      const stem = mesh(shape("reed", () => new THREE.CylinderGeometry(0.05, 0.07, 1.8, 4)), reed, { x, y: 0.9, z });
+      stem.rotation.z = Math.sin(i * 2.7) * 0.2;
+      group.add(stem);
+      if (i % 3 === 0) group.add(mesh(shape("reedHead", () => new THREE.CapsuleGeometry(0.1, 0.36, 2, 5)), paint("#7a4a2c"), { x: x + stem.rotation.z * -0.9, y: 1.75, z }));
+    }
+    [[-29, -16], [29, 15], [-27, 17], [30, -15]].forEach(([x, z], index) => {
+      const stone = mesh(shape("crown", () => new THREE.IcosahedronGeometry(1, 0)), paint("#9aa1ad", { flat: true }), { x, y: 0.4, z });
+      stone.scale.set(1.3, 0.7, 1 + index * 0.15);
+      stone.rotation.y = index;
+      group.add(stone);
+    });
+    group.userData.water = water;
+    return group;
+  };
+
+  /** The planks out over the water and the wider deck at the end. */
+  const pier = (walk, deck) => {
+    const group = new THREE.Group();
+    const wood = paint("#b98152");
+    const dark = paint("#8a5a37");
+    const lay = (area, y) => {
+      const count = Math.round(area.d / 0.8);
+      for (let i = 0; i < count; i += 1) group.add(box(area.w, 0.16, area.d / count - 0.07, i % 2 ? wood : dark, { x: area.x, y, z: area.z - area.d / 2 + (area.d / count) * (i + 0.5), receive: true }));
+      for (const sx of [-1, 1]) for (const sz of [-1, 0, 1]) group.add(mesh(shape("pile", () => new THREE.CylinderGeometry(0.18, 0.18, 1.5, 7)), dark, { x: area.x + sx * (area.w / 2 - 0.1), y: 0.1, z: area.z + sz * (area.d / 2 - 0.2) }));
+    };
+    lay(walk, 0.3);
+    lay(deck, 0.3);
+    // A bucket and a little bench for the angler.
+    group.add(mesh(shape("bucket", () => new THREE.CylinderGeometry(0.34, 0.26, 0.5, 10)), paint("#4f86c6"), { x: deck.x + deck.w / 2 - 0.8, y: 0.63, z: deck.z - deck.d / 2 + 0.7 }));
+    group.add(box(1.6, 0.14, 0.5, wood, { x: deck.x - deck.w / 2 + 1.2, y: 0.8, z: deck.z - deck.d / 2 + 0.6 }), box(0.14, 0.44, 0.44, dark, { x: deck.x - deck.w / 2 + 0.6, y: 0.58, z: deck.z - deck.d / 2 + 0.6 }), box(0.14, 0.44, 0.44, dark, { x: deck.x - deck.w / 2 + 1.8, y: 0.58, z: deck.z - deck.d / 2 + 0.6 }));
+    return group;
+  };
+
+  /** The tackle stall: a counter under a striped roof. */
+  const stall = (spec) => {
+    const group = new THREE.Group();
+    group.position.set(spec.x, 0, spec.z);
+    group.add(box(4, 1.1, 1.6, paint("#c98d4f"), { y: 0.55 }), box(4.3, 0.14, 2, paint("#8a5a37"), { y: 1.17 }));
+    for (const sx of [-1, 1]) group.add(box(0.16, 3.2, 0.16, paint("#8a5a37"), { x: sx * 1.95, y: 1.6, z: -0.7 }), box(0.16, 2.9, 0.16, paint("#8a5a37"), { x: sx * 1.95, y: 1.45, z: 0.8 }));
+    for (let i = 0; i < 6; i += 1) {
+      const stripe = box(4.6 / 6, 0.12, 2.6, paint(i % 2 ? "#ffffff" : "#0ea5a0"), { x: -2.3 + (4.6 / 6) * (i + 0.5), y: 3.1, z: 0.05 });
+      stripe.rotation.x = 0.13;
+      group.add(stripe);
+    }
+    const sign = mesh(new THREE.PlaneGeometry(3.4, 3.4 * (176 / 1024)), new THREE.MeshBasicMaterial({ map: signTexture("Tiệm câu", "#0b7f7a"), transparent: true }), { y: 2.45, z: 0.92, cast: false });
+    group.add(sign);
+    // Three rods leaning on the counter.
+    for (let i = 0; i < 3; i += 1) {
+      const leaning = mesh(shape("rodPole", () => new THREE.CylinderGeometry(0.03, 0.05, 3.4, 5)), paint(["#c9a35c", "#8a5a37", "#2b2f3a"][i]), { x: -1.4 + i * 0.45, y: 1.9, z: 1.05 });
+      leaning.rotation.x = -0.2;
+      group.add(leaning);
+    }
+    return group;
+  };
+
+  /** A fishing rod. Its `tip` is where the line starts. */
+  const rod = () => {
+    const group = new THREE.Group();
+    group.add(mesh(shape("rodPole", () => new THREE.CylinderGeometry(0.03, 0.05, 3.4, 5)), paint("#8a5a37"), { y: 1.5 }));
+    group.add(mesh(shape("rodGrip", () => new THREE.CylinderGeometry(0.07, 0.07, 0.5, 6)), paint("#2b2f3a"), { y: 0 }));
+    const tip = new THREE.Object3D();
+    tip.position.y = 3.2;
+    group.add(tip);
+    group.userData.tip = tip;
+    return group;
+  };
+
+  const bobber = () => {
+    const group = new THREE.Group();
+    group.add(mesh(shape("bobTop", () => new THREE.SphereGeometry(0.2, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2)), paint("#ff4d4d"), { cast: false }));
+    group.add(mesh(shape("bobBottom", () => new THREE.SphereGeometry(0.2, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2)), paint("#ffffff"), { cast: false }));
+    group.add(mesh(shape("bobPin", () => new THREE.CylinderGeometry(0.02, 0.02, 0.4, 4)), paint("#2b2f3a"), { y: 0.3, cast: false }));
     return group;
   };
 
@@ -817,7 +947,7 @@ export const createKit = (sky) => {
     shapes.forEach((geometry) => geometry.dispose());
   };
 
-  return { paint, box, mesh, shape, student, tree, bush, lamp, bench, building, label, bubble, pitch, court, ball, gate, fountain, flag, blackboard, house, bus, stool, doorRing, marker, dispose };
+  return { paint, box, mesh, shape, student, tree, bush, lamp, bench, building, label, bubble, pitch, court, ball, gate, fountain, flag, blackboard, house, bus, lake, pier, stall, rod, bobber, stool, doorRing, marker, dispose };
 };
 
 /** Swings arms and legs. `stride` is the walk phase; `amount` runs from 0 (standing) to 1 (walking). */

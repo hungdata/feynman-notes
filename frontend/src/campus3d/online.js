@@ -116,7 +116,9 @@ export const useCampusOnline = (profile, worldRef, ready) => {
         // The server may correct a stale tab, collision, or an impossible jump.
         const current = worldRef.current.where();
         const sentGap = Math.hypot(result.player.x - point.x, result.player.z - point.z);
-        if (sentGap > 2 && Math.hypot(current.x - point.x, current.z - point.z) < 4) worldRef.current.teleport(result.player);
+        if (sentGap > 0.05 && Math.hypot(current.x - point.x, current.z - point.z) < 4) {
+          worldRef.current.reconcile(result.player, point);
+        }
       }).catch(recover).finally(() => { inFlight = null; });
       pendingRef.current = inFlight;
       return inFlight;
@@ -214,5 +216,9 @@ export const useCampusOnline = (profile, worldRef, ready) => {
     setError("");
     setRetry((value) => value + 1);
   }, []);
-  return { onlineRef, snapshot, connection, error, action, reconnect, clearError: () => setError("") };
+  const syncPosition = useCallback(async () => {
+    await pendingRef.current;
+    await sendRef.current?.(true, true);
+  }, []);
+  return { onlineRef, snapshot, connection, error, action, reconnect, syncPosition, clearError: () => setError("") };
 };

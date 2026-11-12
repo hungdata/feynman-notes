@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BOUNDS, BUILDINGS, COURT, DOOR_WEIGHTS, EDGES, NODES, PATHS, PITCH, PLAYER_RADIUS, PLAZA, SPAWN, TREES, buildColliders, doorOf } from "./world.js";
-import { angleDelta, moveWithCollisions, nearestDoor, segmentHitsBox, steer, turnToward } from "./movement.js";
+import { BOUNDS, BUILDINGS, COURT, DECK, DOOR_WEIGHTS, EDGES, GATE, LAKE, NODES, PATHS, PIER, PITCH, PLAYER_RADIUS, PLAZA, SPAWN, TREES, buildColliders, doorOf, onDeck } from "./world.js";
+import { angleDelta, moveWithCollisions, nearestDoor, reconcilePosition, segmentHitsBox, steer, turnToward } from "./movement.js";
 import { buildGraph, createBasketball, createFootball, createStudent, findPath, pickDestination, stepBasketball, stepFootball, stepStudent } from "./npc.js";
 
 // Small deterministic random so the simulations repeat exactly.
@@ -50,9 +50,9 @@ test("the player cannot walk through walls, trees or the fence", () => {
   for (let i = 0; i < 80; i += 1) walker = moveWithCollisions(walker, 0.1, 0, PLAYER_RADIUS, colliders, BOUNDS);
   assert.ok(Math.hypot(walker.x - tx, walker.z - tz) >= 0.55 * size + PLAYER_RADIUS - 1e-6, "pushed out of the tree trunk");
 
-  let runner = { x: 3, z: 70 };
+  let runner = { x: 16, z: 70 };
   for (let i = 0; i < 400; i += 1) runner = moveWithCollisions(runner, 0, 0.2, PLAYER_RADIUS, colliders, BOUNDS);
-  assert.ok(runner.z <= BOUNDS.maxZ - PLAYER_RADIUS + 1e-9, "stays inside the fence");
+  assert.ok(runner.z <= GATE.z - 0.25 - PLAYER_RADIUS + 1e-9, "the fence blocks walking outside the gate");
 });
 
 test("the start point and every door are free to stand on", () => {
@@ -171,4 +171,85 @@ test("the basketball friends dribble, shoot and fetch the ball in turns", () => 
   for (const name of ["shoot", "score", "rim", "bounce"]) assert.ok(seen.has(name), `saw ${name}`);
   assert.ok(holders.size >= 3, "the ball changes hands");
   assert.ok(game.made > 5);
+});
+
+test("outside the school: out through the gate, down to the street, onto the pier, but not into the water", () => {
+  const walk = (from, dx, dz, steps) => {
+    let position = { ...from };
+    for (let i = 0; i < steps; i += 1) position = moveWithCollisions(position, dx, dz, PLAYER_RADIUS, colliders, BOUNDS);
+    return position;
+  };
+  // Straight south from the spawn point: through the gate, over the road, to the village street.
+  const street = walk(SPAWN, 0, 0.2, 300);
+  assert.ok(street.z > 117.9 && Math.abs(street.x) < 0.01, `reached the street (z=${street.z.toFixed(1)})`);
+
+  // Along the pier to the deck: free. One more step south is water.
+  const deck = walk({ x: PIER.x, z: 120 }, 0, 0.2, 200);
+  assert.ok(onDeck(deck) && deck.z <= DECK.z + DECK.d / 2 - PLAYER_RADIUS + 1e-6, `on the deck (z=${deck.z.toFixed(2)})`);
+  const sideways = walk(deck, 0.2, 0, 100);
+  assert.ok(sideways.x <= DECK.x + DECK.w / 2 - PLAYER_RADIUS + 1e-6, "the deck has an edge");
+
+  // From the bank, the lake cannot be walked into anywhere.
+  for (const x of [LAKE.x - 20, LAKE.x - 6, LAKE.x + 8, LAKE.x + 22]) {
+    const wet = walk({ x, z: 122 }, 0, 0.2, 200);
+    assert.ok(wet.z <= LAKE.z - LAKE.d / 2 - PLAYER_RADIUS + 1e-6, `stopped at the bank at x=${x} (z=${wet.z.toFixed(2)})`);
+  }
+  // Halfway along the pier, stepping off sideways is not possible either.
+  const off = walk({ x: PIER.x, z: 130 }, 0.2, 0, 60);
+  assert.ok(off.x <= PIER.x + PIER.w / 2 - PLAYER_RADIUS + 1e-6);
+  assert.ok(!onDeck({ x: 0, z: 118 }));
+});
+
+test("a small server correction aligns fishing-deck eligibility and preserves later safe movement", () => {
+  // The former two-unit correction threshold left these two sides disagreeing indefinitely.
+  const sent = { x: PIER.x, z: 134.8 };
+  const accepted = { x: PIER.x, z: 134.6 };
+  assert.ok(onDeck(sent) && !onDeck(accepted));
+  assert.deepEqual(reconcilePosition(sent, accepted, sent, PLAYER_RADIUS, colliders, BOUNDS), accepted);
+
+  const continued = { x: 20.8, z: 135.8 };
+  const corrected = reconcilePosition(continued, accepted, sent, PLAYER_RADIUS, colliders, BOUNDS);
+  assert.ok(Math.abs(corrected.x - continued.x) < 1e-9);
+  assert.ok(Math.abs(corrected.z - 135.6) < 1e-9, "movement after the sent packet is retained");
+  assert.ok(onDeck(corrected));
+
+  // Replaying westward movement from an earlier point must not cut through the water at the pier elbow.
+  const corner = reconcilePosition({ x: 17.2, z: 135.8 }, { x: PIER.x, z: 135.2 }, { x: PIER.x, z: 135.8 }, PLAYER_RADIUS, colliders, BOUNDS);
+  assert.ok(corner.x >= PIER.x - PIER.w / 2 + PLAYER_RADIUS - 1e-9);
+  assert.deepEqual(moveWithCollisions(corner, 0, 0, PLAYER_RADIUS, colliders, BOUNDS), corner, "the correction finishes on dry planks");
+});
+
+/* ---------- the reeling game ---------- */
+const { REEL, createReel, fishInZone, stepReel } = await import("./fishing.js");
+
+test("reeling: following the fish lands it, doing nothing or only holding loses it", () => {
+  const play = (pull, zone, decide, seed = 21) => {
+    const random = seeded(seed);
+    const reel = createReel(pull, zone);
+    for (let frame = 0; frame < 60 * 120 && !reel.result; frame += 1) {
+      stepReel(reel, 1 / 60, decide(reel), random);
+      assert.ok(reel.fish >= 0 && reel.fish <= 1 && reel.at >= 0 && reel.at <= 1 - reel.zone + 1e-9, "everything stays on the bar");
+    }
+    return reel;
+  };
+  // A careful player: lift when the fish is above the middle of the zone.
+  const careful = (reel) => reel.fish > reel.at + reel.zone / 2;
+  for (const pull of [0.3, 0.5, 0.76, 0.94]) {
+    const reel = play(pull, 0.3, careful);
+    assert.equal(reel.result, "caught", `a careful player lands a fish that pulls ${pull}`);
+    assert.ok(reel.time >= (1 - REEL.start) / REEL.gain - 1e-6, "which always takes a moment");
+  }
+  // Without watching the fish it mostly gets away (it can still wander into the zone by luck).
+  const seeds = Array.from({ length: 60 }, (_, index) => index * 7 + 3);
+  const lost = (decide) => seeds.filter((seed) => play(0.7, 0.3, decide, seed).result === "lost").length;
+  assert.ok(lost(() => false) >= 42, "never lifting loses the fish most of the time");
+  assert.ok(lost(() => true) >= 42, "holding all the time loses it too");
+
+  // The legendary fish is hard on the bamboo rod and easier on a better one.
+  const landed = (zone) => [3, 5, 8, 13, 21, 34, 55, 89].filter((seed) => play(1.08, zone, careful, seed).result === "caught").length;
+  assert.ok(landed(0.44) >= landed(0.3));
+  assert.ok(landed(0.44) >= 7);
+
+  const fresh = createReel(0.5, 0.3);
+  assert.ok(fishInZone(fresh) && fresh.progress === REEL.start);
 });

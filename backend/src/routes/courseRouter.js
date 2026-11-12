@@ -10,6 +10,7 @@ import { addXp, completeLesson, currentStreak, emptyLearner, emptyProgress, summ
 import { activeProvider, describeAi, runOpenAiChat } from "../ai/providers/index.js";
 import { prepareDocumentForSave } from "../mindmaps/documents.js";
 import { buildKnowledgeMap } from "../courses/knowledgeMap.js";
+import { rewardLesson, withEconomyOwner } from "../campus/economy.js";
 
 /**
  * Learning roadmaps generated from books.
@@ -142,14 +143,20 @@ router.post("/:courseId/lessons/:lessonId/complete", route(async (req, res) => {
   const course = await loadCourse(req);
   const { lesson } = findLesson(course, String(req.params.lessonId));
   if (!lesson) return fail(res, 404, "Không tìm thấy bài học.");
-  const store = getStore();
   const day = todayFor(req.body?.day);
-  const current = (await store.courseProgress.get(req.user.id, course.id)) || emptyProgress(course.id);
-  const { progress, xp } = completeLesson(current, lesson, req.body || {});
-  const learner = addXp(await learnerFor(req.user.id), xp, day);
-  await store.courseProgress.save(req.user.id, course.id, progress);
-  await store.learners.save(req.user.id, "stats", learner);
-  res.json({ progress, learner: publicLearner(learner, day), xp });
+  const result = await withEconomyOwner(req.user.id, async (store) => {
+    const current = (await store.courseProgress.get(req.user.id, course.id)) || emptyProgress(course.id);
+    const firstCompletion = !current.lessons?.[lesson.id]?.completedAt;
+    const { progress, xp } = completeLesson(current, lesson, req.body || {});
+    const learner = addXp(await learnerFor(req.user.id), xp, day);
+    // Save the idempotent reward before marking the lesson complete. A failed
+    // wallet write can then be retried without permanently losing its gold.
+    const gold = await rewardLesson(store, req.user.id, course.id, lesson.id, firstCompletion);
+    await store.courseProgress.save(req.user.id, course.id, progress);
+    await store.learners.save(req.user.id, "stats", learner);
+    return { progress, learner: publicLearner(learner, day), xp, gold };
+  });
+  res.json(result);
 }));
 
 router.post("/:courseId/grade", route(async (req, res) => {
