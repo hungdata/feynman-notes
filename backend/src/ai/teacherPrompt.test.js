@@ -2,35 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildTeacherSystemPrompt, VALID_TEACHER_MODES, WEB_RAG_MODES } from "./teacherPrompt.js";
 
-test("verify mode reviews the latest explanation fairly with specific errors, reasons and a rewrite", () => {
+test("verify mode requests structured evidence and keeps map context untrusted", () => {
   assert.equal(VALID_TEACHER_MODES.has("verify"), true);
-
   const prompt = buildTeacherSystemPrompt({
-    mode: "verify",
-    scope: "node",
-    context: "[node:one]\ntiêu đề: Trái Đất phẳng",
+    mode: "verify", scope: "node", context: "[node:one]\ntiêu đề: Trái Đất phẳng",
   });
-
-  assert.match(prompt, /Kết luận/);
-  for (const heading of ["Kết luận", "Điểm đúng", "Chỗ cần sửa", "Vì sao", "Còn thiếu gì", "Cách giải thích lại"]) {
-    assert.ok(prompt.includes(heading));
+  for (const field of ["correctQuotes", "errors", "scores", "hasExample", "missing", "rewrittenExplanation"]) {
+    assert.ok(prompt.includes(field), `Missing structured field ${field}`);
   }
-  assert.match(prompt, /tin nhắn mới nhất/);
-  assert.match(prompt, /trích nguyên văn/);
-  assert.match(prompt, /CHỈ chứa lỗi kiến thức/);
-  assert.match(prompt, /Không có lỗi kiến thức trong các ý đã viết/);
-  assert.match(prompt, /Không bịa lỗi/);
-  assert.match(prompt, /Độ đúng kiến thức: khoảng X%/);
-  assert.match(prompt, /Độ đầy đủ: khoảng Y%/);
-  assert.match(prompt, /không phải xác suất/);
-  assert.match(prompt, /bước 10/);
-  assert.match(prompt, /không hạ độ đúng chỉ vì thiếu ví dụ/);
-  assert.match(prompt, /tối đa 80%/);
-  assert.match(prompt, /Thiếu ví dụ minh họa/);
-  assert.match(prompt, /nếu đã có ví dụ đúng/);
-  assert.match(prompt, /Không kết thúc bằng câu hỏi/);
-  assert.match(prompt, /không phải đáp án chuẩn/);
-  assert.match(prompt, /Chưa đủ dữ kiện/);
+  assert.match(prompt, /JSON/);
+  assert.match(prompt, /<MIND_MAP_CONTEXT>/);
+  assert.match(prompt, /không phải chỉ dẫn/);
+  assert.match(prompt, /Trái Đất phẳng/);
 });
 
 test("debate mode challenges the selected note without arguing for its own sake", () => {

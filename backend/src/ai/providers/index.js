@@ -1,6 +1,7 @@
 import { runCloudflareModel } from "./cloudflareProvider.js";
 import { AiRequestError, getOpenAiConfig, isOpenAiConfigured, parseJsonLoose, runOpenAiChat } from "./openaiCompatibleProvider.js";
 import { IDEA_EXPANSION_SCHEMA } from "../ideaExpansion.js";
+import { ASSESSMENT_SCHEMA, formatExplanationAssessment } from "../explanationAssessment.js";
 
 /**
  * Which AI backs the app:
@@ -29,16 +30,33 @@ export const describeAi = (env = process.env) => {
 };
 
 /** Chat for the AI Teacher: same result shape for every provider. */
-export const runTeacherModel = async ({ messages }) => {
+export const runTeacherModel = async ({ messages, mode }) => {
+  const verify = mode === "verify";
+  const explanation = verify
+    ? [...messages].reverse().find((message) => message.role === "user")?.content || ""
+    : "";
   if (activeProvider() === "openai") {
     const configuredLimit = Number.parseInt(process.env.AI_MAX_OUTPUT_TOKENS, 10);
     const maxTokens = Number.isFinite(configuredLimit) && configuredLimit > 0
       ? Math.min(configuredLimit, 4_096)
       : 1_200;
-    const result = await runOpenAiChat({ messages, maxTokens, timeoutMs: Number(process.env.AI_TEACHER_TIMEOUT_MS) || 90_000 });
-    return { content: result.content, model: result.model, usage: result.usage };
+    const directOpenAi = /^https:\/\/api\.openai\.com(?:\/|$)/i.test(getOpenAiConfig().baseUrl);
+    const result = await runOpenAiChat({
+      messages,
+      ...(verify ? { json: true, ...(directOpenAi ? { jsonSchema: ASSESSMENT_SCHEMA } : {}) } : {}),
+      maxTokens,
+      timeoutMs: Number(process.env.AI_TEACHER_TIMEOUT_MS) || 90_000,
+    });
+    return {
+      content: verify ? formatExplanationAssessment(result.data, { explanation }) : result.content,
+      model: result.model,
+      usage: result.usage,
+    };
   }
-  return runCloudflareModel({ messages });
+  const result = await runCloudflareModel({ messages });
+  return verify
+    ? { ...result, content: formatExplanationAssessment(parseJsonLoose(result.content), { explanation }) }
+    : result;
 };
 
 /** Ideas are previews only; the editor creates nodes after explicit insertion. */

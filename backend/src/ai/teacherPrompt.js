@@ -1,3 +1,5 @@
+import { EXPLANATION_ASSESSMENT_INSTRUCTIONS } from "./explanationAssessment.js";
+
 const MODE_INSTRUCTIONS = {
   socratic:
     "Dạy theo phương pháp Socratic: hỏi từng câu ngắn để người học tự suy luận. Không đưa toàn bộ đáp án ngay; sau câu trả lời của người học mới gợi ý hoặc sửa hiểu lầm.",
@@ -9,21 +11,7 @@ const MODE_INSTRUCTIONS = {
     "Kiểm tra kiến thức từng câu một. Chờ người học trả lời rồi mới chấm, giải thích và chuyển câu tiếp theo.",
   review:
     "Ôn tập trọng tâm, chỉ ra phần còn thiếu hoặc mâu thuẫn trong ghi chú và đề xuất bước học tiếp theo.",
-  verify:
-    [
-      "Nhận xét lời giải thích của học sinh bằng ngôn ngữ đơn giản. Nhận xét phiên bản lời giải thích trong tin nhắn mới nhất; nếu học sinh chỉ yêu cầu nhận xét note, dùng note đang được chọn. Mind map chỉ là bối cảnh, không phải đáp án chuẩn.",
-      "Trả lời gọn, tối đa 180–200 từ; có thể ngắn hơn nếu chỉ thiếu một ví dụ, không viết thêm lời phê bình cho đủ độ dài. Dùng đúng sáu tiêu đề riêng dòng: Kết luận; Điểm đúng; Chỗ cần sửa; Vì sao; Còn thiếu gì; Cách giải thích lại. Dùng đúng chữ các tiêu đề này, không thêm số hay ký hiệu Markdown vào tiêu đề. Dùng từ ngữ phổ thông, giải thích thuật ngữ khi cần, tránh thêm thuật ngữ tiếng Anh không cần thiết.",
-      "Ở mục Kết luận, tách hai mức đánh giá tham khảo: Độ đúng kiến thức: khoảng X%; Độ đầy đủ: khoảng Y%. Chỉ dùng số tròn theo bước 10, từ 0 đến 100, không dùng số lẻ tạo cảm giác chính xác tuyệt đối. Đây là ước lượng hỗ trợ học, không phải xác suất câu trả lời đúng, điểm chuẩn hay điểm chính thức. Nếu không đủ dữ kiện để kiểm chứng, ghi Chưa đủ dữ kiện để ước lượng thay cho phần trăm tương ứng.",
-      "Độ đúng kiến thức chỉ đánh giá các khẳng định học sinh ĐÃ VIẾT: chính xác, sai hoặc chưa rõ ở đâu. Độ đầy đủ đánh giá lời giải thích theo bốn tiêu chí nhập môn: ý chính/định nghĩa (40), cơ chế hoặc vì sao (30), ví dụ cụ thể gắn với khái niệm (20), diễn đạt dễ hiểu (10), tổng 100. Ước lượng từng tiêu chí rồi cộng cho độ đầy đủ; thiếu hoàn toàn ví dụ thì phần ví dụ là 0/20 và độ đầy đủ tối đa 80%. Một câu đúng nhưng thiếu ví dụ vẫn có thể đạt độ đúng kiến thức 100%; không hạ độ đúng chỉ vì thiếu ví dụ hoặc còn ngắn.",
-      "Quy tắc bắt buộc cho độ đúng: kiểm tra từng khẳng định thực sự có trong bài; tỷ lệ xấp xỉ số ý đúng trên tổng ý đã kiểm chứng, làm tròn bước 10. Nếu không tìm được khẳng định SAI về kiến thức thì độ đúng là 100%. Chỉ được hạ độ đúng khi mục Chỗ cần sửa trích được một khẳng định sai thật sự và mục Vì sao giải thích nó sai ở đâu. Diễn đạt còn chung chung, thiếu thuật ngữ hoặc thiếu ví dụ chỉ ảnh hưởng độ đầy đủ. Không gán phần trăm đúng thấp trong khi chính nhận xét thừa nhận mọi ý đã viết đều đúng.",
-      "Ví dụ hiệu chuẩn: Bài viết 'Supervised learning dùng dữ liệu có nhãn để mô hình học ra các quy luật để sau đó mô hình có thể dự đoán nhãn của mẫu mới.' có ba ý đúng: dữ liệu có nhãn, học từ dữ liệu, dự đoán nhãn của mẫu mới. Với lời giải thích nhập môn này: độ đúng kiến thức 100%, độ đầy đủ khoảng 80% vì chưa có ví dụ. Không nói thiếu dự đoán mẫu mới vì học sinh ĐÃ VIẾT ý đó. Không đòi hàm mất mát hoặc liệt kê thuật toán; có thể gợi ý ví dụ email gán nhãn spam/không spam rồi dự đoán email mới.",
-      "Ví dụ đối chiếu: 'Máy học không cần dữ liệu và dự đoán luôn đúng' gồm hai khẳng định sai; độ đúng kiến thức 0%. Không cho điểm đúng cho các ý sai này. Dùng cùng nguyên tắc cho chủ đề khác, không sao chép điểm của ví dụ khi bài viết khác.",
-      "Ở mục Điểm đúng, chỉ nêu ý đúng thực sự có trong lời giải thích; nếu không có, ghi rõ Chưa có ý đúng về kiến thức trong câu này. Không đặt lời phê bình hoặc ý sai vào mục Điểm đúng. Mục Chỗ cần sửa CHỈ chứa lỗi kiến thức: trích nguyên văn đoạn sai thực sự có trong bài, sửa lại đúng. Nếu không có, ghi Không có lỗi kiến thức trong các ý đã viết. Chuyển phần diễn đạt chưa rõ và phần cần bổ sung sang Còn thiếu gì. Ở mục Vì sao, giải thích ngắn căn cứ để xác định ý đúng hoặc sai, không bịa lỗi. Ưu tiên tối đa hai ý quan trọng.",
-      "Không bịa lỗi, không biến một câu đúng nhưng chưa đầy đủ thành sai. Nếu không có lỗi kiến thức, nói rõ như vậy; phần bổ sung chỉ là gợi ý để giải thích rõ hơn. Không bắt buộc học sinh nêu mọi chi tiết chuyên sâu trong một lời giải thích nhập môn.",
-      "Ở mục Còn thiếu gì, đối chiếu bốn tiêu chí trên và chỉ ra tối đa ba phần còn thiếu hoặc chưa rõ để câu giải thích đầy đủ hơn; mỗi phần phải nói nên bổ sung nội dung CỤ THỂ nào. Trước khi nêu thiếu, đọc lại bài và bỏ mọi đề xuất mà học sinh đã viết, kể cả khi dùng cách diễn đạt khác. Luôn kiểm tra ví dụ: nếu chưa có, ghi rõ Thiếu ví dụ minh họa và gợi ý một tình huống gắn với đúng chủ đề; nếu đã có ví dụ đúng, công nhận và không nói thiếu ví dụ. Phân biệt thiếu ý cần thiết với chi tiết mở rộng tùy chọn; không đòi liệt kê mọi thuật toán hoặc kiến thức nâng cao chỉ để giải thích một định nghĩa cơ bản.",
-      "Ở mục Cách giải thích lại, viết một lời giải thích mẫu hoàn chỉnh trong 3–4 câu ngắn, giữ ý đúng, sửa lỗi nếu có, thêm phần còn thiếu và một ví dụ cụ thể phù hợp, giải thích rõ ví dụ thể hiện khái niệm ở đâu. Không kết thúc bằng câu hỏi hoặc chuyển sang Socratic, trắc nghiệm hay tranh luận.",
-      "Không khẳng định chắc chắn nếu ngữ cảnh thiếu, nội dung phụ thuộc thời điểm, hoặc cần nguồn bên ngoài để xác minh; nói rõ điều chưa thể kiểm chứng.",
-    ].join(" "),
+  verify: EXPLANATION_ASSESSMENT_INSTRUCTIONS,
   explain_rag:
     "Giải thích note bằng Web RAG theo phương pháp Feynman. Dùng note làm câu hỏi trung tâm, đối chiếu nguồn web được cung cấp, giải thích logic từng bước và ví dụ ngắn. Mọi nhận định lấy từ web phải có số nguồn [n].",
   debate_rag:

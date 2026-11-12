@@ -256,7 +256,7 @@ router.post(
         { role: "user", content: input.message },
       ];
 
-      const answer = await runTeacherModel({ messages: providerMessages });
+      const answer = await runTeacherModel({ messages: providerMessages, mode: input.mode });
       if (!answer.content) {
         throw new AiProviderError("AI Teacher không tạo được câu trả lời.", {
           status: 502,
