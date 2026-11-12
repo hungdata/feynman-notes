@@ -7,8 +7,9 @@ import {
   assertCloudflareAiAvailable,
   getCloudflareAiAvailability,
 } from "../ai/providers/cloudflareProvider.js";
-import { activeProvider, AiRequestError, describeAi, isAiConfigured, runTeacherModel } from "../ai/providers/index.js";
+import { activeProvider, AiRequestError, describeAi, isAiConfigured, runIdeaExpansionModel, runTeacherModel } from "../ai/providers/index.js";
 import { AiBudgetError, getAiRequestBudget } from "../ai/requestBudget.js";
+import { buildIdeaExpansion, IdeaExpansionError, normalizeExpansionRequest, normalizeIdeaBranches } from "../ai/ideaExpansion.js";
 import {
   getBraveSearchAvailability,
   searchBraveWeb,
@@ -87,6 +88,8 @@ const configuredRateLimit = Math.max(
   1,
   Math.min(Number.parseInt(process.env.AI_RATE_LIMIT_PER_MINUTE, 10) || 10, 60)
 );
+// The same account cannot bypass the test allowance by switching AI actions.
+const limitAiRequests = createAiRateLimiter({ limit: configuredRateLimit });
 
 router.use(requireAuth);
 
@@ -164,10 +167,29 @@ const requireAiAvailability = (_req, res, next) => {
   }
 };
 
+router.post("/expand", requireAiAvailability, limitAiRequests, async (req, res, next) => {
+  try {
+    const input = normalizeExpansionRequest(req.body);
+    const mindMap = await getStore().mindMaps.get(req.user.id, input.documentId);
+    if (!mindMap || mindMap.document?.trashedAt) return res.status(404).json({ message: "Không tìm thấy mind map." });
+    const { messages, existingLabels } = buildIdeaExpansion(mindMap.document, input);
+    const result = await runIdeaExpansionModel({ messages });
+    const topicLabel = mindMap.document.nodes.find((node) => node.id === input.nodeId)?.data?.label || "";
+    const branches = normalizeIdeaBranches(result.data, { existingLabels, topicLabel });
+    return res.json({ documentId: input.documentId, nodeId: input.nodeId, branches, model: result.model });
+  } catch (error) {
+    if (error instanceof AiBudgetError || error instanceof AiProviderError || error instanceof AiRequestError || error instanceof IdeaExpansionError) {
+      if (error.retryAt) res.setHeader("Retry-After", String(Math.max(1, Math.ceil((new Date(error.retryAt).getTime() - Date.now()) / 1_000))));
+      return res.status(error.status).json({ message: error.message, code: error.code, ...(error.retryAt ? { retryAt: error.retryAt } : {}) });
+    }
+    next(error);
+  }
+});
+
 router.post(
   "/chat",
   requireAiAvailability,
-  createAiRateLimiter({ limit: configuredRateLimit }),
+  limitAiRequests,
   async (req, res, next) => {
     let input;
     try {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sendTeacherMessage, TeacherApiError } from "./teacherApi.js";
+import { expandTeacherIdeas, sendTeacherMessage, TeacherApiError } from "./teacherApi.js";
 
 test("teacher client sends an authenticated JSON request", async (t) => {
   const originalFetch = globalThis.fetch;
@@ -45,4 +45,22 @@ test("teacher client preserves the daily quota error for the UI lock", async (t)
       return true;
     }
   );
+});
+
+test("idea expansion sends an authenticated preview request without mutating the map", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, status: 200, json: async () => ({ documentId: "map-a", nodeId: "node-a", branches: [{ label: "Training", children: [] }] }) };
+  };
+  const input = { documentId: "map-a", nodeId: "node-a", explanation: "Dùng dữ liệu có nhãn." };
+  const result = await expandTeacherIdeas(input);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "/api/ai/expand");
+  assert.equal(calls[0].options.credentials, "include");
+  assert.equal(calls[0].options.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].options.body), input);
+  assert.equal(result.branches[0].label, "Training");
 });

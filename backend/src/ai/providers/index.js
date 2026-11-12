@@ -1,5 +1,6 @@
 import { runCloudflareModel } from "./cloudflareProvider.js";
-import { AiRequestError, getOpenAiConfig, isOpenAiConfigured, runOpenAiChat } from "./openaiCompatibleProvider.js";
+import { AiRequestError, getOpenAiConfig, isOpenAiConfigured, parseJsonLoose, runOpenAiChat } from "./openaiCompatibleProvider.js";
+import { IDEA_EXPANSION_SCHEMA } from "../ideaExpansion.js";
 
 /**
  * Which AI backs the app:
@@ -38,6 +39,21 @@ export const runTeacherModel = async ({ messages }) => {
     return { content: result.content, model: result.model, usage: result.usage };
   }
   return runCloudflareModel({ messages });
+};
+
+/** Ideas are previews only; the editor creates nodes after explicit insertion. */
+export const runIdeaExpansionModel = async ({ messages }) => {
+  if (activeProvider() === "openai") {
+    const configuredLimit = Number.parseInt(process.env.AI_MAX_OUTPUT_TOKENS, 10);
+    const maxTokens = Number.isFinite(configuredLimit) && configuredLimit > 0 ? Math.min(configuredLimit, 4_096) : 1_200;
+    const directOpenAi = /^https:\/\/api\.openai\.com(?:\/|$)/i.test(getOpenAiConfig().baseUrl);
+    return runOpenAiChat({
+      messages, json: true, ...(directOpenAi ? { jsonSchema: IDEA_EXPANSION_SCHEMA } : {}),
+      maxTokens, timeoutMs: Number(process.env.AI_TEACHER_TIMEOUT_MS) || 90_000,
+    });
+  }
+  const result = await runCloudflareModel({ messages });
+  return { ...result, data: parseJsonLoose(result.content) };
 };
 
 export { AiRequestError, runOpenAiChat };

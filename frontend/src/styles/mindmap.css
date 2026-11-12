@@ -629,6 +629,33 @@ svg { flex: none; }
 .teacher-feedback-block h4 { margin:0 0 5px; color:#4c1d95; font-size:12px; font-weight:750; }
 .teacher-review-progress { display:flex; align-items:center; gap:7px; padding:10px 0; color:#7c3aed; font-size:11px; }
 .teacher-review-progress svg { flex:none; }
+.teacher-ideas { margin-top:18px; padding:13px; border:1px solid #c7d2fe; border-radius:12px; background:linear-gradient(145deg,#f5f3ff,#f0fdfa); }
+.teacher-ideas>header { display:flex; align-items:flex-start; gap:8px; margin-bottom:12px; }
+.teacher-ideas>header>svg { width:19px; height:19px; flex:none; margin-top:1px; color:#4f46e5; }
+.teacher-ideas h3 { margin:0 0 4px; color:#312e81; font-size:13px; font-weight:800; }
+.teacher-ideas>header p { margin:0; color:#64748b; font-size:11px; line-height:1.55; }
+.teacher-ideas-generate,.teacher-ideas-apply { width:100%; min-height:38px; display:flex; align-items:center; justify-content:center; gap:7px; padding:9px 10px; border:1px solid #a5b4fc; border-radius:9px; color:#4338ca; background:#fff; font-size:11.5px; font-weight:750; cursor:pointer; }
+.teacher-ideas-generate>svg,.teacher-ideas-apply>svg { width:16px; height:16px; flex:none; }
+.teacher-ideas-generate:hover:not(:disabled) { background:#eef2ff; }
+.teacher-ideas-generate:disabled,.teacher-ideas-apply:disabled { opacity:.5; cursor:not-allowed; }
+.teacher-ideas-hint { margin:8px 0 0; color:#8491a4; font-size:10px; line-height:1.55; }
+.teacher-ideas-preview { margin-top:14px; padding-top:12px; border-top:1px solid #c7d2fe; }
+.teacher-ideas-preview-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.teacher-ideas-preview-heading strong { color:#334155; font-size:11.5px; }
+.teacher-ideas-preview-heading>span { flex:none; padding:3px 6px; border-radius:20px; color:#0f766e; background:#ccfbf1; font-size:9.5px; font-weight:750; }
+.teacher-ideas-source { display:-webkit-box; overflow:hidden; -webkit-line-clamp:2; -webkit-box-orient:vertical; margin:7px 0 11px; color:#8491a4; font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+.teacher-ideas-tree { display:flex; flex-direction:column; gap:8px; margin:0 0 12px; padding:0; list-style:none; }
+.teacher-ideas-tree>li { padding:9px 10px; border:1px solid #e0e7ff; border-radius:9px; background:#ffffffb3; }
+.teacher-ideas-tree label { display:flex; align-items:flex-start; gap:7px; color:#334155; font-size:11px; font-weight:750; line-height:1.5; cursor:pointer; overflow-wrap:anywhere; }
+.teacher-ideas-tree input { flex:none; width:13px; height:13px; margin:2px 0 0; accent-color:#4f46e5; }
+.teacher-ideas-tree label:has(input:disabled) { cursor:default; }
+.teacher-ideas-tree>li:has(input:not(:checked)) { opacity:.55; }
+.teacher-ideas-tree ul { margin:6px 0 0 6px; padding:0 0 0 15px; border-left:1px solid #c7d2fe; list-style:none; color:#64748b; font-size:10.5px; line-height:1.6; }
+.teacher-ideas-tree ul>li { position:relative; margin:3px 0; overflow-wrap:anywhere; }
+.teacher-ideas-tree ul>li:before { content:""; position:absolute; left:-15px; top:.8em; width:9px; border-top:1px solid #c7d2fe; }
+.teacher-ideas-apply { border-color:#0f766e; color:#fff; background:#0f766e; }
+.teacher-ideas-apply:hover:not(:disabled) { background:#115e59; }
+.teacher-ideas-result { margin:9px 0 0; color:#0f766e; font-size:10.5px; line-height:1.55; }
 [data-ui-theme="dark"] .teacher-review-body { background:var(--bg-app); }
 [data-ui-theme="dark"] .teacher-review-form textarea,[data-ui-theme="dark"] .teacher-review-message { color:var(--text); border-color:var(--line); background:var(--chrome); }
 [data-ui-theme="dark"] .teacher-review-message.user { background:var(--chrome-2); }
@@ -637,6 +664,14 @@ svg { flex: none; }
 [data-ui-theme="dark"] .teacher-review-topic,[data-ui-theme="dark"] .teacher-review-input-hint,[data-ui-theme="dark"] .teacher-review-empty { color:var(--text-3); }
 [data-ui-theme="dark"] .teacher-review-empty,[data-ui-theme="dark"] .teacher-feedback-block+.teacher-feedback-block { border-color:var(--line); }
 [data-ui-theme="dark"] .teacher-feedback-block h4,[data-ui-theme="dark"] .teacher-review-message>header,[data-ui-theme="dark"] .teacher-review-input-label button { color:#b59aff; }
+[data-ui-theme="dark"] .teacher-ideas { border-color:#484272; background:linear-gradient(145deg,#26213a,#182c2b); }
+[data-ui-theme="dark"] .teacher-ideas h3,[data-ui-theme="dark"] .teacher-ideas>header>svg { color:#b59aff; }
+[data-ui-theme="dark"] .teacher-ideas>header p,[data-ui-theme="dark"] .teacher-ideas-tree ul { color:var(--text-2); }
+[data-ui-theme="dark"] .teacher-ideas-generate,[data-ui-theme="dark"] .teacher-ideas-tree>li { border-color:#484272; color:#c4b5fd; background:var(--chrome); }
+[data-ui-theme="dark"] .teacher-ideas-tree label,[data-ui-theme="dark"] .teacher-ideas-preview-heading strong { color:var(--text); }
+[data-ui-theme="dark"] .teacher-ideas-preview,[data-ui-theme="dark"] .teacher-ideas-tree ul,[data-ui-theme="dark"] .teacher-ideas-tree ul>li:before { border-color:#484272; }
+[data-ui-theme="dark"] .teacher-ideas-preview-heading>span { color:#99f6e4; background:#134e4a; }
+[data-ui-theme="dark"] .teacher-ideas-result { color:#5eead4; }
 [data-ui-theme="dark"] .coffee-modal { color: var(--text); border-color: var(--line); background: var(--chrome); }
 
 /* ------------------------------------------------------------ responsive -- */

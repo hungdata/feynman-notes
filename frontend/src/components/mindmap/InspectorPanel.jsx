@@ -41,7 +41,7 @@ const InspectorPanel = ({ tab, onTabChange, onClose, map, selection, actions }) 
     content = <OutlinePanel nodes={actions.outlineNodes} numbers={actions.numbers} selectedId={firstNode?.id} onSelect={actions.focusNode} onCheck={(id, checked) => actions.edit([id], { checked, checkbox: true })} onRename={(id, label) => actions.edit([id], { label })} onReparent={(source, target) => actions.reparent(source, target)} onToggle={(id, collapsed) => actions.edit([id], { collapsed })} />;
   }
   if (tab === "ai") {
-    content = <TeacherPanel key={map.document.id} documentId={map.document.id} selectedNode={firstNode || null} quickActionRequest={actions.teacherQuickAction} onQuickActionComplete={actions.saveTeacherNote} onClose={onClose} embedded />;
+    content = <TeacherPanel key={map.document.id} documentId={map.document.id} selectedNode={firstNode || null} quickActionRequest={actions.teacherQuickAction} onQuickActionHandled={actions.consumeTeacherAction} onQuickActionComplete={actions.saveTeacherNote} onAddIdeas={actions.addAiIdeas} onPrepareIdeas={map.saveNow} onClose={onClose} embedded />;
   }
 
   return (

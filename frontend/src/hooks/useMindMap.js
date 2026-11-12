@@ -10,6 +10,7 @@ import { createFromTemplate, migrateDocument } from "@/mindmap/storage";
 import { resolveNodeStyles } from "@/mindmap/styles";
 import { nodesFromTree } from "@/mindmap/formats";
 import { fetchMindMaps, removeMindMap, saveMindMap } from "@/mindmap/api";
+import { insertIdeaBranches } from "@/mindmap/ideaBranches";
 
 const HISTORY_LIMIT = 100;
 const STYLE_FIELDS = ["color", "textColor", "borderColor", "borderWidth", "shape", "fontSize", "fontWeight", "fontStyle", "textAlign", "maxWidth", "branchColor"];
@@ -206,6 +207,18 @@ export const useMindMap = (user) => {
   const redo = useCallback(() => restoreSnapshot(history.future.at(-1), "future", "past"), [history.future, restoreSnapshot]);
 
   // -------------------------------------------------------------- topics --
+
+  const addIdeaBranches = useCallback((request) => {
+    // AI responses may arrive after a map switch; never apply them to the new map.
+    if (!request?.documentId || activeIdRef.current !== request.documentId) return null;
+    const current = documentsRef.current.find((item) => item.id === request.documentId);
+    const result = insertIdeaBranches(current, request, { layout: relayout });
+    if (!result) return null;
+    if (result.addedCount > 0) setDocument(result.document);
+    const summary = { ...result };
+    delete summary.document;
+    return summary;
+  }, [setDocument]);
 
   const addNode = useCallback((parentId, label = "", options = {}) => {
     const parent = nodes.find((node) => node.id === parentId) || nodes.find((node) => !node.data.parentId) || nodes[0];
@@ -620,7 +633,7 @@ export const useMindMap = (user) => {
     documents, document, nodes: visibleNodes, allNodes: nodes, edges, selectedNode, resolved, branchModes,
     selectedIds, setSelectedIds, setActiveId: openDocument, focusId, setFocusId, isLoaded, reload: loadRemote,
     setDocument, updateSettings, updateSelected, updateNodesData, updateNodeStyle, onNodesChange, recordDrag,
-    addNode, addSibling, addRootNode, deleteSelected, removeNodes, duplicateSelected, addImageNode, attachImage, addTree, sortChildren,
+    addNode, addSibling, addRootNode, addIdeaBranches, deleteSelected, removeNodes, duplicateSelected, addImageNode, attachImage, addTree, sortChildren,
     resetStyle, copyStyle, pasteStyle, hasClipboardBranch,
     updateRelation, addCrossLink, deleteCrossLink, reparentNode, moveNode, moveSubtree,
     copy, cut, paste, undo, redo, arrange, expandAll, collapseAll, showHidden,

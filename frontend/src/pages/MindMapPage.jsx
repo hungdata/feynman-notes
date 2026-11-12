@@ -72,6 +72,7 @@ const MindMapWorkspace = () => {
   const dragPositionsRef = useRef(null);
   const dropParentIdRef = useRef(null);
   const editTimesRef = useRef(new Map());
+  const activeMapIdRef = useRef(map.document.id);
   const assets = useImageAssets(map.allNodes);
 
   const wide = typeof window === "undefined" || window.innerWidth > 1100;
@@ -99,6 +100,8 @@ const MindMapWorkspace = () => {
   const { resolved } = map;
 
   // ------------------------------------------------------------ app state --
+
+  useEffect(() => { activeMapIdRef.current = map.document.id; }, [map.document.id]);
 
   useEffect(() => writeSetting("feynman.ui.sidebar", sidebarOpen ? "1" : "0"), [sidebarOpen]);
   useEffect(() => writeSetting("feynman.ui.inspector", inspectorTab || ""), [inspectorTab]);
@@ -182,13 +185,17 @@ const MindMapWorkspace = () => {
     const node = map.allNodes.find((item) => item.id === nodeId && item.type === "topic");
     if (!node) return;
     if (!String(node.data.label || node.data.note || "").trim()) {
-      toast.info("Hãy nhập nội dung cho topic trước khi nhờ AI kiểm tra.");
+      toast.info("Hãy nhập nội dung cho topic trước khi dùng AI.");
       return;
     }
     selectNodes([nodeId]);
     setInspectorTab("ai");
-    setTeacherQuickAction({ nodeId, mode, requestId: crypto.randomUUID() });
-  }, [map.allNodes, selectNodes]);
+    setTeacherQuickAction({ documentId: map.document.id, nodeId, mode, requestId: crypto.randomUUID() });
+  }, [map.allNodes, map.document.id, selectNodes]);
+
+  const consumeTeacherAction = useCallback((requestId) => {
+    setTeacherQuickAction((current) => current?.requestId === requestId ? null : current);
+  }, []);
 
   const saveTeacherNote = useCallback(({ sourceNodeId, content, conversationId, mode }) => {
     const source = map.allNodes.find((node) => node.id === sourceNodeId && node.type === "topic");
@@ -200,6 +207,27 @@ const MindMapWorkspace = () => {
     });
     void map.saveNow();
   }, [map]);
+
+  const addAiIdeas = useCallback((input) => {
+    const result = map.addIdeaBranches(input);
+    if (!result) {
+      toast.info("Topic đã thay đổi hoặc không còn trong sơ đồ này. Hãy chọn lại topic để phát triển ý.");
+      return null;
+    }
+    if (result.addedCount > 0) {
+      setSelectedEdgeId(null);
+      toast.success(`Đã vẽ thêm ${result.addedCount} topic. Bạn có thể hoàn tác bằng ⌘Z.`);
+      // Let the new nodes measure before fitting the complete tree on screen.
+      window.setTimeout(() => {
+        if (activeMapIdRef.current === input.documentId) flow.fitView({ padding: 0.18, maxZoom: 1.1, duration: 350 });
+      }, 120);
+    } else if (result.message) {
+      toast.info(result.message);
+    } else {
+      toast.info("Các ý đã chọn đã có trong sơ đồ.");
+    }
+    return result;
+  }, [flow, map]);
 
   // ------------------------------------------------------------ display --
 
@@ -728,8 +756,10 @@ const MindMapWorkspace = () => {
     focusNode,
     reparent: (source, target) => { if (!map.reparentNode(source, target)) toast.warning("Không thể chuyển topic vào nhánh con của chính nó."); },
     deleteEdge: (edge) => { map.deleteCrossLink(edge.id); setSelectedEdgeId(null); },
-    teacherQuickAction,
+    teacherQuickAction: teacherQuickAction?.documentId === map.document.id ? teacherQuickAction : null,
+    consumeTeacherAction,
     saveTeacherNote,
+    addAiIdeas,
   };
 
   const contextNode = contextMenu?.nodeId ? displayNodeById.get(contextMenu.nodeId) : null;

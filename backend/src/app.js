@@ -49,6 +49,7 @@ export const API_INDEX = {
     "DELETE /api/assets/images/:assetId": "Xóa ảnh không còn dùng",
     "GET /api/ai/status": "Trạng thái AI Teacher",
     "POST /api/ai/chat": "Hỏi AI Teacher",
+    "POST /api/ai/expand": "Gợi ý nhánh kiến thức: { documentId, nodeId, explanation? }; xem trước trước khi vẽ vào sơ đồ",
     "GET /api/courses": "Khóa học tạo từ sách + XP/streak của người học",
     "POST /api/courses": "Tải PDF (multipart: pdf, language) → AI tạo lộ trình theo chương",
     "GET /api/courses/:id": "Lộ trình + tiến độ",

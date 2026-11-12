@@ -132,3 +132,25 @@ test("JSON format fallback retries only the unsupported format and keeps model a
   }), (failure) => failure.code === "AI_REJECTED" && !failure.message.includes("test-only-key"));
   assert.equal(rejectedCalls, 1);
 });
+
+test("structured idea output carries strict schema and never retries a rejected schema", async () => {
+  const schema = { name: "ideas", strict: true, schema: { type: "object", properties: { branches: { type: "array", items: { type: "string" } } }, required: ["branches"], additionalProperties: false } };
+  const result = await runOpenAiChat({
+    messages: [], jsonSchema: schema, env: config(),
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      assert.deepEqual(body.response_format, { type: "json_schema", json_schema: schema });
+      return response(completion('{"branches":["Training"]}'));
+    },
+  });
+  assert.deepEqual(result.data, { branches: ["Training"] });
+  let calls = 0;
+  await assert.rejects(runOpenAiChat({
+    messages: [], json: true, jsonSchema: schema, env: config(),
+    fetchImpl: async () => {
+      calls++;
+      return response({ error: { param: "response_format", message: "unsupported schema" } }, 400);
+    },
+  }), (error) => error.code === "AI_REJECTED");
+  assert.equal(calls, 1);
+});

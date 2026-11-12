@@ -35,3 +35,10 @@ export const sendTeacherMessage = (input) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
+
+export const expandTeacherIdeas = (input) =>
+  request("/api/ai/expand", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });

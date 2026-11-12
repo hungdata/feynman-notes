@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, ChevronDown, CircleAlert, GraduationCap, History, LoaderCircle, RefreshCw, Sparkles, UserRound, X } from "lucide-react";
 import { fetchTeacherConversations, fetchTeacherMessages, fetchTeacherStatus, sendTeacherMessage } from "@/mindmap/teacherApi";
 import { EXPLANATION_LIMIT, explanationDraftKey, explanationReviewRequest, feedbackBlocks, nodeExplanation } from "@/mindmap/explanationReview";
+import IdeaExpansionPanel from "./IdeaExpansionPanel";
 
 const formatResetTime = (retryAt) => {
   if (!retryAt) return "ngày mai";
@@ -10,17 +11,19 @@ const formatResetTime = (retryAt) => {
   return date.toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
 };
 
-const TeacherReviewPanel = ({ documentId, selectedNode, quickActionRequest, onQuickActionComplete, onClose, embedded = false }) => {
+const TeacherReviewPanel = ({ documentId, selectedNode, quickActionRequest, onQuickActionComplete, onQuickActionHandled, onAddIdeas, onPrepareIdeas, onClose, embedded = false }) => {
   const [conversationId, setConversationId] = useState("");
   const [conversations, setConversations] = useState([]);
   const [messages, setMessages] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [expanding, setExpanding] = useState(false);
   const [error, setError] = useState("");
   const [availability, setAvailability] = useState({ available: true, retryAt: null });
   const messageEndRef = useRef(null);
   const handledQuickActionRef = useRef("");
+  const handledExpansionActionRef = useRef("");
   const sendingRef = useRef(false);
   const activeRef = useRef(true);
   const historyRequestRef = useRef(0);
@@ -28,6 +31,12 @@ const TeacherReviewPanel = ({ documentId, selectedNode, quickActionRequest, onQu
   const selectedText = nodeExplanation(selectedNode);
   const input = drafts[draftKey] ?? selectedText;
   const setInput = (value) => setDrafts((current) => ({ ...current, [draftKey]: value }));
+  const setExpansionBusy = useCallback((value) => setExpanding(value), []);
+  const handleAiError = useCallback((requestError) => {
+    if (["AI_DAILY_QUOTA_EXHAUSTED", "AI_TEST_DAILY_LIMIT"].includes(requestError.code)) {
+      setAvailability((current) => ({ ...current, available: false, code: requestError.code, retryAt: requestError.retryAt }));
+    }
+  }, []);
 
   const refreshConversations = useCallback(async () => {
     const result = await fetchTeacherConversations(documentId);
@@ -120,32 +129,33 @@ const TeacherReviewPanel = ({ documentId, selectedNode, quickActionRequest, onQu
 
   const submit = (event) => {
     event.preventDefault();
-    if (!loading) void sendContent(input);
+    if (!loading && !expanding) void sendContent(input);
   };
 
   useEffect(() => {
-    if (!quickActionRequest?.requestId || loading || sending || !availability.available || availability.configured === false) return;
+    if (!quickActionRequest?.requestId || (quickActionRequest.documentId && quickActionRequest.documentId !== documentId) || quickActionRequest.mode === "expand" || loading || sending || expanding || !availability.available || availability.configured === false) return;
     if (handledQuickActionRef.current === quickActionRequest.requestId || !selectedNode || selectedNode.id !== quickActionRequest.nodeId) return;
     let active = true;
     queueMicrotask(() => {
       if (!active || handledQuickActionRef.current === quickActionRequest.requestId) return;
       handledQuickActionRef.current = quickActionRequest.requestId;
+      onQuickActionHandled?.(quickActionRequest.requestId);
       const explanation = nodeExplanation(selectedNode);
       if (!explanation) { setError("Hãy viết lời giải thích vào topic hoặc ghi chú trước."); return; }
       setDrafts((current) => ({ ...current, [explanationDraftKey(documentId, selectedNode.id)]: explanation }));
       void sendContent(explanation, { node: selectedNode, saveAsTeacherNote: true });
     });
     return () => { active = false; };
-  }, [availability.available, availability.configured, documentId, loading, quickActionRequest, selectedNode, sendContent, sending]);
+  }, [availability.available, availability.configured, documentId, expanding, loading, onQuickActionHandled, quickActionRequest, selectedNode, sendContent, sending]);
 
   const notConfigured = availability.configured === false;
   const unavailable = !availability.available || notConfigured;
 
   return (
-    <aside className={`teacher-panel teacher-review ${embedded ? "is-embedded" : ""}`} aria-label="Nhận xét lời giải thích bằng AI">
+    <aside className={`teacher-panel teacher-review ${embedded ? "is-embedded" : ""}`} aria-label="Nhận xét và phát triển ý bằng AI">
       <header className="teacher-header">
         <div className="teacher-avatar"><GraduationCap /></div>
-        <div><span>FEYNMAN AI</span><strong>Nhận xét lời giải thích</strong></div>
+        <div><span>FEYNMAN AI</span><strong>Nhận xét & phát triển ý</strong></div>
         <button type="button" onClick={onClose} aria-label="Đóng nhận xét AI"><X /></button>
       </header>
 
@@ -167,7 +177,7 @@ const TeacherReviewPanel = ({ documentId, selectedNode, quickActionRequest, onQu
             maxLength={EXPLANATION_LIMIT}
           />
           <div className="teacher-review-input-hint"><span>Bạn có thể sửa nội dung trước khi gửi.</span><span>{input.length}/{EXPLANATION_LIMIT}</span></div>
-          <button className="teacher-review-submit" type="submit" disabled={!input.trim() || unavailable || sending || loading}>
+          <button className="teacher-review-submit" type="submit" disabled={!input.trim() || unavailable || sending || expanding || loading}>
             {sending ? <LoaderCircle className="spin" /> : <Sparkles />}
             {sending ? "Đang nhận xét…" : "Nhận xét lời giải thích"}
           </button>
@@ -176,6 +186,23 @@ const TeacherReviewPanel = ({ documentId, selectedNode, quickActionRequest, onQu
         {notConfigured && <div className="teacher-quota is-setup" role="note"><CircleAlert /><div><strong>AI chưa sẵn sàng</strong><span>Bạn vẫn có thể viết lời giải thích và thử lại sau.</span></div></div>}
         {unavailable && !notConfigured && <div className="teacher-quota" role="alert"><CircleAlert /><div><strong>Đã hết lượt thử hôm nay</strong><span>Bạn có thể nhận xét tiếp lúc {formatResetTime(availability.retryAt)}.</span></div></div>}
         {error && !unavailable && <div className="teacher-error" role="alert"><CircleAlert /> {error}</div>}
+
+        <IdeaExpansionPanel
+          key={draftKey}
+          documentId={documentId}
+          nodeId={selectedNode?.type === "topic" ? selectedNode.id : undefined}
+          topicTitle={selectedNode?.data?.label || selectedNode?.data?.caption || ""}
+          explanation={input}
+          quickActionRequest={quickActionRequest}
+          quickActionExplanation={selectedText}
+          handledActionRef={handledExpansionActionRef}
+          onQuickActionHandled={onQuickActionHandled}
+          disabled={loading || sending || unavailable}
+          onAddIdeas={onAddIdeas}
+          onPrepareIdeas={onPrepareIdeas}
+          onBusyChange={setExpansionBusy}
+          onAiError={handleAiError}
+        />
 
         {conversations.length > 0 && <details className="teacher-review-history">
           <summary><History /> Nhận xét đã lưu</summary>

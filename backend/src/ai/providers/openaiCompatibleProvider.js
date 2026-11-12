@@ -68,7 +68,7 @@ const isOriginalGpt5 = (model) => /^gpt-5(?:-(?:mini|nano))?(?:-\d{4}-\d{2}-\d{2
  * Sends a chat completion. With `json: true` the model is asked for a JSON
  * object (response_format) and the parsed object is returned as `data`.
  */
-export const runOpenAiChat = async ({ messages, json = false, temperature = 0.4, maxTokens, timeoutMs, env = process.env, fetchImpl = fetch } = {}) => {
+export const runOpenAiChat = async ({ messages, json = false, jsonSchema, temperature = 0.4, maxTokens, timeoutMs, env = process.env, fetchImpl = fetch } = {}) => {
   const config = getOpenAiConfig(env);
   if (!config.baseUrl || !config.model) {
     throw new AiRequestError("Chưa cấu hình AI: thêm AI_BASE_URL, AI_API_KEY và AI_MODEL vào backend/.env.", { status: 503, code: "AI_NOT_CONFIGURED" });
@@ -95,7 +95,7 @@ export const runOpenAiChat = async ({ messages, json = false, temperature = 0.4,
                 max_completion_tokens: requestedTokens,
               }
             : { temperature, ...(maxTokens ? { max_tokens: maxTokens } : {}) }),
-          ...(withFormat ? { response_format: { type: "json_object" } } : {}),
+          ...(withFormat ? { response_format: jsonSchema ? { type: "json_schema", json_schema: jsonSchema } : { type: "json_object" } } : {}),
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -108,11 +108,11 @@ export const runOpenAiChat = async ({ messages, json = false, temperature = 0.4,
     }
   };
 
-  let { response, payload } = await send(json);
+  let { response, payload } = await send(json || Boolean(jsonSchema));
   // Retry only a rejected JSON-format option, not unrelated 400 errors.
   const formatRejected = payload?.error?.param === "response_format"
     || /response[_ ]format|json[_ ]object|json mode/i.test(String(payload?.error?.message || ""));
-  if (json && response.status === 400 && formatRejected) ({ response, payload } = await send(false));
+  if (json && !jsonSchema && response.status === 400 && formatRejected) ({ response, payload } = await send(false));
   if (!response.ok) {
     throw explainHttpError(response.status, payload);
   }
@@ -124,7 +124,7 @@ export const runOpenAiChat = async ({ messages, json = false, temperature = 0.4,
   if (!content) throw new AiRequestError("AI không trả về nội dung.", { code: "AI_EMPTY_RESPONSE", retryable: true });
   return {
     content,
-    data: json ? parseJsonLoose(content) : undefined,
+    data: json || jsonSchema ? parseJsonLoose(content) : undefined,
     model: payload?.model || config.model,
     usage: {
       inputTokens: Number(payload?.usage?.prompt_tokens) || 0,

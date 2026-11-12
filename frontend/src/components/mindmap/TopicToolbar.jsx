@@ -1,7 +1,7 @@
 import { NodeToolbar, Position } from "@xyflow/react";
 import {
   ArrowDownAZ, ArrowUpAZ, BadgeCheck, CalendarDays, ClipboardPaste, Copy, Ellipsis, EyeOff, Focus, GraduationCap,
-  ImagePlus, Lock, LockOpen, Paintbrush, Plus, RotateCw, Rows3, Smile, Spline,
+  GitBranch, ImagePlus, Lock, LockOpen, Paintbrush, Plus, RotateCw, Rows3, Smile, Spline,
   SquareCheck, SquareDashed, StickyNote, Trash2, Unlink,
 } from "lucide-react";
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from "./ui";
@@ -27,10 +27,11 @@ const TopicToolbar = ({ node, actions }) => {
         <Menu width={230} trigger={({ toggle, open }) => <button type="button" className={`is-ai ${open ? "is-active" : ""}`} title="AI Teacher" aria-label="AI Teacher" onClick={toggle}><GraduationCap /></button>}>
           {(close) => (
             <>
-              <MenuLabel>Nhận xét lời giải thích</MenuLabel>
+              <MenuLabel>Học cùng AI</MenuLabel>
               <MenuItem icon={BadgeCheck} label="Nhận xét và lưu vào sơ đồ" close={close} onSelect={() => actions.aiAction(node.id, "verify")} />
+              <MenuItem icon={GitBranch} label="Phát triển ý bằng AI" close={close} onSelect={() => actions.aiAction(node.id, "expand")} />
               <MenuSeparator />
-              <MenuItem icon={GraduationCap} label="Mở phần nhận xét AI (⌘6)" close={close} onSelect={() => actions.openTab("ai")} />
+              <MenuItem icon={GraduationCap} label="Mở trợ lý AI (⌘6)" close={close} onSelect={() => actions.openTab("ai")} />
             </>
           )}
         </Menu>

@@ -79,6 +79,7 @@ Mã nằm ở `frontend/src/campus3d/` (cảnh, điều khiển, giao diện ch�
 - **Brainstorm** (⌘B) và **dán văn bản thành nhiều topic**; **trình chiếu** từng nhánh (F5); tập trung một nhánh; tìm kiếm; giao diện sáng/tối.
 - **Xuất/nhập**: PNG, SVG, PDF, in; OPML, FreeMind `.mm`, Markdown, văn bản thụt lề, HTML, lịch `.ics`, bản sao lưu `.json`.
 - **AI nhận xét lời giải thích**: chọn topic, sửa lời giải thích bằng lời của mình rồi bấm **Nhận xét lời giải thích**. AI nêu kết luận, điểm đúng, chỗ cần sửa, vì sao và cách giải thích lại. Mỗi lượt độc lập, không tìm web; nhận xét cũ có trong **Nhận xét đã lưu**.
+- **Phát triển ý bằng AI**: chọn topic → tab **AI** hoặc menu **AI Teacher → Phát triển ý bằng AI**. Xem trước các nhánh kiến thức, chọn nhánh muốn học rồi bấm **Vẽ các nhánh đã chọn**. Ví dụ “Supervised learning” có thể phát triển thành dữ liệu có nhãn, huấn luyện, dự đoán, thuật toán và đánh giá. Các ý được vẽ thành topic con/cháu, tự bố trí theo sơ đồ, tránh trùng tên cùng cấp và hoàn tác cả lượt bằng `⌘Z`. Xem trước không sửa sơ đồ; vẽ từ gợi ý không gọi AI thêm.
 
 ### Phím tắt chính
 
