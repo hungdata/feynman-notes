@@ -10,6 +10,7 @@ export const campusRequest = async (path, options = {}) => {
   if (!response.ok) {
     const error = new Error(result.message || "Chưa kết nối được với sân trường. Hãy thử lại.");
     error.status = response.status;
+    error.code = result.code;
     throw error;
   }
   return result;
@@ -25,6 +26,8 @@ export const useCampusOnline = (profile, worldRef, ready) => {
   const sendRef = useRef(null);
   const pendingRef = useRef(null);
   const actionBusyRef = useRef(false);
+  const reconnectAttemptRef = useRef(0);
+  const recoverRef = useRef(null);
 
   useEffect(() => {
     if (!profile || !ready) return undefined;
@@ -32,10 +35,70 @@ export const useCampusOnline = (profile, worldRef, ready) => {
     let inFlight = null;
     let lastSent = 0;
     let lastPoint = "";
+    let reconnectTimer = null;
+    let probing = false;
+    let terminal = false;
     const controller = new AbortController();
     const source = new EventSource("/api/campus/events", { withCredentials: true });
     onlineRef.current.connected = false;
     setConnection("connecting");
+    const boundedRequest = async (path, options = {}) => {
+      const requestController = new AbortController();
+      let timedOut = false;
+      const abortRequest = () => requestController.abort();
+      controller.signal.addEventListener("abort", abortRequest, { once: true });
+      const deadline = window.setTimeout(() => { timedOut = true; requestController.abort(); }, 15000);
+      try {
+        return await campusRequest(path, { ...options, signal: requestController.signal });
+      } catch (cause) {
+        if (timedOut && alive && !controller.signal.aborted) {
+          throw Object.assign(new Error("Kết nối phản hồi quá lâu. Đang tự kết nối lại…"), { code: "CAMPUS_TIMEOUT" });
+        }
+        throw cause;
+      } finally {
+        window.clearTimeout(deadline);
+        controller.signal.removeEventListener("abort", abortRequest);
+      }
+    };
+    const scheduleReconnect = (immediate = false) => {
+      if (!alive || terminal) return;
+      if (reconnectTimer !== null) {
+        if (!immediate) return;
+        window.clearTimeout(reconnectTimer);
+      }
+      onlineRef.current.connected = false;
+      source.close();
+      setConnection("reconnecting");
+      const attempt = reconnectAttemptRef.current++;
+      // A server waking up may take a while. Retry gently, never in a tight loop.
+      const delay = immediate ? 0 : Math.min(500 * 2 ** Math.min(attempt, 5), 10000);
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        if (alive && !terminal) setRetry((value) => value + 1);
+      }, delay);
+    };
+    const recover = (cause) => {
+      if (!alive || cause.name === "AbortError") return;
+      if (cause.status === 401 || cause.code === "CHARACTER_REQUIRED") {
+        terminal = true;
+        source.close();
+        if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        onlineRef.current.connected = false;
+        setConnection(cause.status === 401 ? "reauthentication" : "disconnected");
+        setError(cause.status === 401
+          ? "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại để trở về sân trường."
+          : "Nhân vật chưa được lưu trên máy chủ này. Hãy mở Nhân vật để tạo lại trước khi vào sân.");
+        return;
+      }
+      if (cause.code === "CAMPUS_DISCONNECTED" || cause.code === "CAMPUS_TIMEOUT") {
+        setError("Đang tự kết nối lại sân trường…");
+        scheduleReconnect();
+        return;
+      }
+      setError(cause.message);
+    };
+    recoverRef.current = recover;
     const send = async (force = false, duringAction = false) => {
       if (!alive || !onlineRef.current.connected || inFlight || (!duringAction && actionBusyRef.current) || !worldRef.current) return inFlight;
       const point = worldRef.current.where();
@@ -43,31 +106,24 @@ export const useCampusOnline = (profile, worldRef, ready) => {
       if (!force && key === lastPoint && Date.now() - lastSent < 1000) return undefined;
       lastPoint = key;
       lastSent = Date.now();
-      inFlight = campusRequest("input", {
+      inFlight = boundedRequest("input", {
         method: "POST",
         signal: controller.signal,
         body: JSON.stringify({ x: point.x, z: point.z, heading: point.heading, moving: Boolean(point.moving) }),
       }).then((result) => {
         if (!alive || !result.player || !worldRef.current) return;
+        reconnectAttemptRef.current = 0;
         // The server may correct a stale tab, collision, or an impossible jump.
         const current = worldRef.current.where();
         const sentGap = Math.hypot(result.player.x - point.x, result.player.z - point.z);
         if (sentGap > 2 && Math.hypot(current.x - point.x, current.z - point.z) < 4) worldRef.current.teleport(result.player);
-      }).catch((cause) => {
-        if (!alive || cause.name === "AbortError") return;
-        if (cause.status === 401 || cause.status === 409) {
-          onlineRef.current.connected = false;
-          source.close();
-          setConnection("disconnected");
-        }
-        setError(cause.message);
-      }).finally(() => { inFlight = null; });
+      }).catch(recover).finally(() => { inFlight = null; });
       pendingRef.current = inFlight;
       return inFlight;
     };
     sendRef.current = send;
     const onWorld = (event) => {
-      if (!alive) return;
+      if (!alive || terminal || reconnectTimer !== null) return;
       try {
         const value = JSON.parse(event.data);
         if (!Array.isArray(value.players) || !value.selfId) return;
@@ -81,22 +137,46 @@ export const useCampusOnline = (profile, worldRef, ready) => {
     };
     source.addEventListener("world", onWorld);
     source.onerror = () => {
-      if (!alive) return;
+      if (!alive || terminal || reconnectTimer !== null) return;
       onlineRef.current.connected = false;
       setConnection("reconnecting");
+      // EventSource hides HTTP status codes. Check once per failure so an expired
+      // cookie or missing character does not become an endless reconnect loop.
+      if (probing) return;
+      probing = true;
+      boundedRequest("profile").then((result) => {
+        if (!alive || terminal) return;
+        if (!result.profile) {
+          recover(Object.assign(new Error("Nhân vật chưa được lưu."), { status: 409, code: "CHARACTER_REQUIRED" }));
+        } else if (source.readyState === 2) {
+          // HTTP failures can permanently close EventSource; transport failures
+          // stay CONNECTING and retain the browser's automatic retry behavior.
+          scheduleReconnect();
+        }
+      }).catch((cause) => {
+        if (!alive || cause.name === "AbortError") return;
+        recover(cause);
+        if (!terminal && source.readyState === 2) scheduleReconnect();
+      }).finally(() => { probing = false; });
     };
     const timer = window.setInterval(() => { void send(); }, 100);
-    const resume = () => { if (!document.hidden) void send(true); };
+    const resume = () => {
+      if (document.hidden || terminal) return;
+      if (onlineRef.current.connected) void send(true);
+      else scheduleReconnect(true);
+    };
     document.addEventListener("visibilitychange", resume);
     return () => {
       alive = false;
       source.close();
       controller.abort();
       window.clearInterval(timer);
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       document.removeEventListener("visibilitychange", resume);
       onlineRef.current.connected = false;
       sendRef.current = null;
       pendingRef.current = null;
+      recoverRef.current = null;
     };
   }, [profile, ready, retry, worldRef]);
 
@@ -121,13 +201,18 @@ export const useCampusOnline = (profile, worldRef, ready) => {
       setError("");
       return result;
     } catch (cause) {
-      setError(cause.message);
+      if (recoverRef.current) recoverRef.current(cause);
+      else setError(cause.message);
       throw cause;
     } finally {
       actionBusyRef.current = false;
     }
   }, [worldRef]);
 
-  const reconnect = useCallback(() => { setError(""); setRetry((value) => value + 1); }, []);
+  const reconnect = useCallback(() => {
+    reconnectAttemptRef.current = 0;
+    setError("");
+    setRetry((value) => value + 1);
+  }, []);
   return { onlineRef, snapshot, connection, error, action, reconnect, clearError: () => setError("") };
 };
