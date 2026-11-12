@@ -108,7 +108,6 @@ export const formatExplanationAssessment = (payload, { explanation } = {}) => {
   // A concrete example explicitly introduced in the source earns recognition
   // even if the model overlooks it. Full credit still needs model assessment.
   const scores = { ...payload.scores, example: payload.hasExample ? payload.scores.example : unrecognizedExample && !exampleHasError ? 10 : 0 };
-  const completeness = roundTen(Object.values(scores).reduce((sum, score) => sum + score, 0));
   const verifiedCount = correctQuotes.length + errors.length;
   const correctness = verifiedCount && !uncertainQuotes.length ? `khoảng ${roundTen(correctQuotes.length / verifiedCount * 100)}%` : "Chưa đủ dữ kiện để ước lượng";
 
@@ -132,6 +131,18 @@ export const formatExplanationAssessment = (payload, { explanation } = {}) => {
     missing.splice(2);
     missing.push({ criterion: "example", suggestion: "Ví dụ đã có; để được trọn tiêu chí, cần đối chiếu rõ nó minh họa khái niệm ở những điểm nào." });
   }
+  // A deduction needs an actionable gap or a factual error. Otherwise the
+  // percentage contradicts the explanation of what the student should add.
+  if (verifiedCount && !errors.length && !uncertainQuotes.length) {
+    const gaps = new Set(missing.map((item) => item.criterion));
+    for (const [key, criterion] of Object.entries(CRITERIA)) {
+      if (!gaps.has(key) && (key !== "example" || hasExample)) scores[key] = criterion.maximum;
+    }
+  } else if (errors.length && !correctQuotes.length && !uncertainQuotes.length) {
+    scores.mainIdea = 0;
+    scores.mechanism = 0;
+  }
+  const completeness = roundTen(Object.values(scores).reduce((sum, score) => sum + score, 0));
   // Some small models append a serialized-response tail inside the prose field.
   // Remove only that recognizable malformed suffix, preserving ordinary code.
   const rewrittenExplanation = readText(payload.rewrittenExplanation, 1_200)

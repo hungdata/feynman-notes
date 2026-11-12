@@ -47,6 +47,18 @@ test("fully correct introductory claims earn 100% correctness and 80% completene
   assert.deepEqual(output.split("\n\n").map((section) => section.split("\n")[0]), ["Kết luận", "Điểm đúng", "Chỗ cần sửa", "Vì sao", "Còn thiếu gì", "Cách giải thích lại"]);
 });
 
+test("a correct answer cannot lose unexplained points when only its example is missing", () => {
+  const payload = fixture();
+  payload.scores = { mainIdea: 20, mechanism: 20, example: 0, clarity: 10 };
+  const output = format(payload);
+  assert.match(output, /Độ đầy đủ: khoảng 80%/);
+  assert.match(output, /Ý chính 40\/40; Cơ chế 30\/30/);
+  payload.missing.push({ criterion: "mechanism", suggestion: "Giải thích rõ cách đối chiếu kết quả dự đoán với nhãn đúng." });
+  const withGap = format(payload);
+  assert.match(withGap, /Độ đầy đủ: khoảng 70%/);
+  assert.match(withGap, /Cơ chế 20\/30/);
+});
+
 test("correctness is computed from deduplicated verified claims and rounded to tens", () => {
   const payload = fixture();
   payload.errors = [{ quote: "có thể dự đoán nhãn", corrected: "Có thể dự đoán nhưng không đảm bảo mọi dự đoán đều đúng.", why: "Đây là một lỗi giả lập để kiểm tra phép tính." }];
