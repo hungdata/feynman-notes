@@ -105,20 +105,28 @@ test("keyName đọc theo vị trí phím (không bị Unikey đổi chữ), có
 
 /* ================= có bóng: chuyền ================= */
 
-test("S: chuyền ngắn và tự đổi sang người nhận; giữ S lâu thì bóng đi mạnh hơn", () => {
+test("S: chuyền ngắn theo hướng phím và tự đổi sang người nhận", () => {
+  const match = live(2);
+  const r = rig(match);
+  giveBall(match, 6, -25);
+  r.press("right"); r.hit("S", 60); r.release("right");
+  const pass = r.events("pass")[0];
+  assert.equal(pass?.kind, "short");
+  assert.equal(pass.to, 9, "chuyền theo hướng phím → tiền đạo phía trước");
+  assert.equal(match.user.controlledId, pass.to, "đổi người sang người nhận");
+});
+
+test("chế độ thủ công: giữ S lâu thì bóng đi mạnh hơn", () => {
   const speeds = [];
   for (const ms of [60, 850]) {
     const match = live(2);
+    match.assist = "manual";
     const r = rig(match);
     giveBall(match, 6, -25);
     r.press("right"); r.hit("S", ms); r.release("right");
-    const pass = r.events("pass")[0];
-    assert.equal(pass?.kind, "short");
-    assert.equal(pass.to, 9, "chuyền theo hướng phím → tiền đạo phía trước");
-    assert.equal(match.user.controlledId, pass.to, "đổi người sang người nhận");
-    speeds.push(pass.speed);
+    speeds.push(r.events("pass")[0].speed);
   }
-  assert.ok(speeds[1] > speeds[0], `giữ S lâu ${speeds[1].toFixed(1)} > bấm nhanh ${speeds[0].toFixed(1)} m/s`);
+  assert.ok(speeds[1] > speeds[0] + 5, `giữ S lâu ${speeds[1].toFixed(1)} > bấm nhanh ${speeds[0].toFixed(1)} m/s`);
 });
 
 test("Z+S chuyền mạnh tầm thấp nhanh hơn S thường; C+S chuyền bất ngờ", () => {

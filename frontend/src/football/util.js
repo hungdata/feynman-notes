@@ -65,10 +65,13 @@ export const possessionTeam = (match) => {
   if (match.setPiece) return match.setPiece.team;
   return null;
 };
-export const isUser = (match, player) => Boolean(player) && !match.user.auto && player.id === match.user.controlledId;
-/** Đội do người điều khiển (−1 khi để máy tự đá cả hai đội). */
-export const humanTeam = (match) => (match.user.auto ? -1 : match.user.team);
-export const humanId = (match) => (match.user.auto ? -1 : match.user.controlledId);
+/** Người chơi điều khiển đội `team` (null nếu đội đó do máy đá). Chế độ online có hai người. */
+export const humanOf = (match, team) => (team === 0 || team === 1 ? match.humans?.[team] || null : null);
+export const isUser = (match, player) => {
+  if (!player) return false;
+  const human = humanOf(match, player.team);
+  return Boolean(human) && human.controlledId === player.id;
+};
 
 /** Vạch việt vị của đội `attacking`: hậu vệ áp chót của đối phương (hoặc bóng, hoặc giữa sân). */
 export const offsideLine = (match, attacking) => {

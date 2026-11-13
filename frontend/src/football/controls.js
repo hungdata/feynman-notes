@@ -22,7 +22,7 @@
  *   Penalty: ←↑↓→ chỉnh hướng · D sút · Q+D bấm bóng · E đổi người sút · bắt penalty: D (hoặc Ctrl) + hướng để thủ môn bay
  * CHUNG: [ ] giảm/tăng nhịp độ tấn công · Backspace ẩn/hiện vòng dưới chân · Esc tạm dừng
  */
-import { act, clearanceChance, userContext } from "./sim.js";
+import { act as simAct, userContext } from "./sim.js";
 
 export const CHARGE_MS = 900;
 const TAP_MS = 170;
@@ -54,7 +54,10 @@ export const keyName = (event) => {
 
 const isAttack = (context) => context === "ball" || context === "support";
 
-export const createController = ({ onUi = () => {} } = {}) => {
+/**
+ * `act` mặc định chạy thẳng vào trận trên máy này; chế độ online truyền hàm gửi lệnh lên máy chủ.
+ */
+export const createController = ({ onUi = () => {}, act = simAct } = {}) => {
   const held = new Set();
   let charge = null;
   let tap = null;
@@ -149,8 +152,8 @@ export const createController = ({ onUi = () => {} } = {}) => {
   const defensePress = (match, key, now) => {
     if (MOVES.has(key)) { if (held.has("Shift")) fire(match, "switchDir"); return; }
     if (key === "Shift") { if (hasDirection()) fire(match, "switchDir"); return; }
-    if (key === "S") { fire(match, clearanceChance(match) ? "clear" : "switch"); return; }
-    if (key === "D") { if (clearanceChance(match)) fire(match, "clear"); return; }
+    if (key === "S") { fire(match, "switchOrClear"); return; }
+    if (key === "D") { fire(match, "pressOrClear"); return; }
     if (key === "A") { fire(match, "slide"); return; }
     if (key === "Space") { spaceAt = now; fire(match, "tackle"); return; }
     if (key === "W") fire(match, "gkRush");

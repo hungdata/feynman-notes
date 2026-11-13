@@ -76,9 +76,19 @@ const PASS_RANGE = { short: 42, through: 55, lob: 68, lobThrough: 60, throw: 26 
  * Chọn người nhận như FO4: theo hướng phím, lực bấm (bấm nhẹ → người gần, giữ lâu → người xa)
  * và độ thoáng của đường chuyền.
  */
+/** Mức hỗ trợ chuyền/sút (như cài đặt FO4): assisted (Cao), semi (Vừa), manual (Thủ công). Máy luôn dùng mức Cao. */
+export const assistOf = (match, team) => {
+  const human = match.humans?.[team];
+  return human ? human.assist || match.assist || "assisted" : "assisted";
+};
+
 export const choosePassTarget = (match, passer, aim, kind = "short", power = 0.4) => {
   const look = aim && len(aim.x, aim.z) > 0.2 ? norm(aim.x, aim.z) : facing(passer.heading);
   const preferred = kind === "short" ? 7 + power * 26 : kind === "through" ? 14 + power * 26 : kind === "throw" ? 6 + power * 16 : 18 + power * 40;
+  const assisted = assistOf(match, passer.team) === "assisted";
+  // Hỗ trợ cao: lực bấm chỉ hơi ảnh hưởng chọn người; ưu tiên người đúng hướng và đường chuyền thoáng.
+  const powerWeight = assisted ? 0.012 : 0.035;
+  const openWeight = assisted ? 0.2 : 0.13;
   let best = null;
   let bestScore = -Infinity;
   for (const mate of teamOf(match, passer.team)) {
@@ -92,9 +102,59 @@ export const choosePassTarget = (match, passer, aim, kind = "short", power = 0.4
     if (mate.role === "GK" && (kind !== "short" || angle > 0.6)) continue;
     const open = kind === "lob" || kind === "lobThrough" ? nearestOpponent(match, mate).d : laneOpenness(match, passer, mate, passer.team);
     const progress = forward(match, passer.team, mate.x - passer.x);
-    let score = -angle * 2.4 - Math.abs(d - preferred) * 0.035 + Math.min(open, 6) * 0.13 + progress * 0.008;
+    let score = -angle * 2.4 - Math.abs(d - preferred) * powerWeight + Math.min(open, 6) * openWeight + progress * 0.008;
+    // Đường chuyền sệt bị chặn rõ ràng: hỗ trợ cao sẽ né sang người khác cùng hướng.
+    if (assisted && (kind === "short" || kind === "through") && open < 1) score -= 0.9;
     if (kind === "through" || kind === "lobThrough") score += Math.max(0, forward(match, passer.team, mate.x)) * 0.01 + (["ST", "LW", "RW", "CAM"].includes(mate.role) ? 0.25 : 0);
     if (score > bestScore) { bestScore = score; best = mate; }
+  }
+  return best;
+};
+
+/** Thời gian bóng sệt đi hết d mét với tốc độ đầu v0. */
+const groundTime = (d, v0) => {
+  const a = PHYSICS.rolling;
+  const disc = v0 * v0 - 2 * a * d;
+  return disc > 0 ? (v0 - Math.sqrt(disc)) / a : v0 / a;
+};
+
+/** Điểm đón bóng: nơi người nhận đang chạy tới khi bóng tới (ước lượng lặp). */
+const meetPoint = (from, mate, speedFor) => {
+  let point = { x: mate.x, z: mate.z };
+  for (let i = 0; i < 3; i += 1) {
+    const d = dist(from, point);
+    const t = groundTime(d, speedFor(d));
+    point = { x: mate.x + mate.vx * t * 0.85, z: mate.z + mate.vz * t * 0.85 };
+  }
+  return point;
+};
+
+/** Thời gian ngắn nhất để một đối thủ (kể cả thủ môn) chạm tới điểm. */
+const rivalTime = (match, team, point) => {
+  let best = Infinity;
+  for (const other of match.players) {
+    if (other.team === team || other.sentOff) continue;
+    best = Math.min(best, Math.max(0, dist(other, point) - 0.8) / (other.topSpeed || 8) + 0.2);
+  }
+  return best;
+};
+
+/**
+ * Chọc khe hỗ trợ: thử nhiều độ dài, chọn điểm người nhận tới trước hậu vệ;
+ * lực bấm chỉ nghiêng về chọc ngắn hay dài.
+ */
+const throughPoint = (match, passer, receiver, power, assisted) => {
+  const run = throughRunDirection(match, receiver);
+  const wanted = 5 + power * 13;
+  if (!assisted) return keepInside({ x: receiver.x + run.x * wanted, z: receiver.z + run.z * wanted }, 2);
+  let best = null;
+  let bestScore = -Infinity;
+  for (let lead = 4; lead <= 22; lead += 2) {
+    const point = keepInside({ x: receiver.x + run.x * lead, z: receiver.z + run.z * lead }, 2);
+    const mine = dist(receiver, point) / (receiver.topSpeed || 8.5);
+    const margin = rivalTime(match, passer.team, point) - mine;
+    const score = Math.min(margin, 1.2) * 2 - Math.abs(lead - wanted) * 0.04 + (margin > 0 ? 1 : 0);
+    if (score > bestScore) { bestScore = score; best = point; }
   }
   return best;
 };
@@ -123,22 +183,29 @@ export const boxTarget = (match, passer, spot = null) => {
 };
 
 export const passBall = (match, passer, { kind = "short", power = 0.45, aim = null, receiver = null, setPiece = null, style = null } = {}) => {
-  const target = receiver || (style === "earlyCross" ? boxTarget(match, passer) : null) || choosePassTarget(match, passer, aim, kind, power);
+  const mode = setPiece ? "assisted" : assistOf(match, passer.team);
+  const manual = mode === "manual" && kind !== "throw";
+  const target = receiver || (manual ? null : (style === "earlyCross" ? boxTarget(match, passer) : null) || choosePassTarget(match, passer, aim, kind, power));
   const look = aim && len(aim.x, aim.z) > 0.2 ? norm(aim.x, aim.z) : facing(passer.heading);
+  const assisted = mode === "assisted";
   const skill = passer.attrs.pass / 100;
   const pressure = pressureOn(match, passer);
   const offside = setPiece && setPiece !== "freekick" ? null : offsideSnapshot(match, passer);
   let destination;
   let receiverId = target ? target.id : null;
 
+  // Tốc độ chuyền sệt “vừa chân” tới người nhận (hỗ trợ tự chỉnh lực khi bấm thiếu/thừa).
+  const vEndFor = () => (style === "driven" ? 10 + power * 4 : assisted ? 6 + power * 1.5 : 5 + power * 3.5);
+  const comfortable = (d) => groundSpeed(d, vEndFor());
   if (!target) {
-    // Không có ai theo hướng đó: đá vào khoảng trống, như FO4 khi chuyền về nơi không có đồng đội.
-    destination = keepInside({ x: passer.x + look.x * (8 + power * 25), z: passer.z + look.z * (8 + power * 25) });
+    // Không có ai theo hướng đó (hoặc chuyền thủ công): đá theo hướng phím, xa gần theo lực.
+    const reach = manual ? 6 + power * 34 : 8 + power * 25;
+    destination = keepInside({ x: passer.x + look.x * reach, z: passer.z + look.z * reach });
   } else if (kind === "through" || kind === "lobThrough") {
-    const run = throughRunDirection(match, target);
-    const lead = 5 + power * 13;
-    destination = keepInside({ x: target.x + run.x * lead, z: target.z + run.z * lead }, 2);
+    destination = throughPoint(match, passer, target, power, mode !== "manual");
     target.runTo = { x: destination.x, z: destination.z, until: match.time + 3.5 };
+  } else if (kind === "short" && mode !== "manual") {
+    destination = keepInside(meetPoint(match.ball, target, comfortable), 0.8);
   } else {
     const travel = dist(passer, target) / (kind === "lob" ? 17 : 15);
     destination = keepInside({ x: target.x + target.vx * travel * 0.8, z: target.z + target.vz * travel * 0.8 }, 0.8);
@@ -146,7 +213,8 @@ export const passBall = (match, passer, { kind = "short", power = 0.45, aim = nu
 
   const d = dist(match.ball, destination);
   const overhit = Math.max(0, power - 0.85) * 2.5;
-  const spread = (1.18 - skill) * (0.05 + pressure * 0.06 + overhit * 0.08) * (passer.sprint ? 1.3 : 1);
+  const assistFactor = assisted ? 0.45 : mode === "semi" ? 0.8 : 1.15;
+  const spread = (1.18 - skill) * (0.05 + pressure * 0.06 + overhit * 0.08) * (passer.sprint ? 1.3 : 1) * assistFactor;
   const direction = rotate(norm(destination.x - match.ball.x, destination.z - match.ball.z), gaussian(match.rng) * spread);
   release(match, passer, kind === "short" ? 0.45 : 0.7);
 
@@ -157,7 +225,11 @@ export const passBall = (match, passer, { kind = "short", power = 0.45, aim = nu
       const a = PHYSICS.rolling;
       const vEnd = clamp((d - (a * runTime * runTime) / 2) / Math.max(0.3, runTime), 1.2, 9);
       speed = Math.sqrt(vEnd * vEnd + 2 * a * d);
-    } else speed = groundSpeed(d, style === "driven" ? 10 + power * 4 : 5 + power * 3.5);
+    } else speed = comfortable(d);
+    // Hỗ trợ vừa: lực bấm kéo tốc độ một nửa; thủ công: lực bấm quyết định hết.
+    const byPower = 7 + power * 24;
+    if (mode === "semi") speed = (speed + byPower) / 2;
+    if (manual) speed = byPower;
     if (style === "quick") speed *= 1.15;
     speed = clamp(speed * (1 + gaussian(match.rng) * (1.1 - skill) * 0.06), 7, 33);
     launchGround(match, passer, direction, speed);
@@ -191,18 +263,31 @@ export const shootBall = (match, shooter, { power = 0.7, kind = "normal", aim = 
   const d = dist(start, goal);
   const side = Math.sign(goal.x) || 1;
 
-  // Góc sút: phím lên/xuống chọn cột xa/gần; không bấm thì sút về cột xa.
+  const mode = assistOf(match, shooter.team);
+  const keeper = match.players.find((p) => p.team !== shooter.team && p.role === "GK" && !p.sentOff);
+  // Góc sút: phím lên/xuống chọn góc; không bấm thì hỗ trợ tự chọn góc thủ môn để trống.
   let aimZ;
-  if (aim && Math.abs(aim.z) > 0.25) aimZ = Math.sign(aim.z) * (2.15 + Math.min(0.9, Math.abs(aim.z) * 0.6));
+  if (mode === "manual") aimZ = aim ? clamp(aim.z, -1, 1) * FIELD.goalHalf * 1.15 : 0;
+  else if (mode === "assisted") {
+    const kz = keeper ? clamp(keeper.z, -FIELD.goalHalf, FIELD.goalHalf) : 0;
+    const open = FIELD.goalHalf - kz >= kz + FIELD.goalHalf ? 1 : -1;
+    const pick = aim && Math.abs(aim.z) > 0.25 ? Math.sign(aim.z) : open;
+    aimZ = pick * (FIELD.goalHalf - 0.62 - (1 - skill) * 0.3);
+  } else if (aim && Math.abs(aim.z) > 0.25) aimZ = Math.sign(aim.z) * (2.15 + Math.min(0.9, Math.abs(aim.z) * 0.6));
   else if (Math.abs(start.z) > 1.5) aimZ = -Math.sign(start.z) * (1.7 + match.rng() * 1.1);
   else aimZ = (match.rng() < 0.5 ? -1 : 1) * (1.6 + match.rng() * 1.1);
-  let aimY = kind === "low" ? 0.2 : kind === "power" ? 0.5 + power * 0.9 : kind === "finesse" ? 1.15 : kind === "header" ? 0.45 + power * 0.9 : 0.3 + power * 1.45;
+  // Độ cao: hỗ trợ cao giữ bóng trong tầm khung thành dù bấm lực bao nhiêu.
+  const heightPower = mode === "assisted" ? Math.min(power, 0.8) * 0.75 : mode === "manual" ? power * 1.3 : power;
+  let aimY = kind === "low" ? 0.2 : kind === "power" ? 0.5 + heightPower * 0.9 : kind === "finesse" ? 1.15 : kind === "header" ? 0.45 + power * 0.9 : 0.3 + heightPower * 1.45;
   if (aim && aim.x * side < -0.6 && kind === "normal") aimY = Math.max(aimY, 1.7); // ghìm phím lùi: nâng bóng
 
-  const spreadZ = (1.4 - skill) * (0.55 + d / 14) * (1 + pressure * 0.7) * (shooter.sprint ? 1.2 : 1) * (kind === "finesse" ? 0.72 : kind === "header" ? 1.5 : kind === "power" ? 1.3 : 1);
+  const assistSpread = mode === "assisted" ? 0.75 : mode === "manual" ? 1.2 : 1;
+  const spreadZ = (1.4 - skill) * (0.55 + d / 14) * (1 + pressure * 0.7) * (shooter.sprint ? 1.2 : 1) * (kind === "finesse" ? 0.72 : kind === "header" ? 1.5 : kind === "power" ? 1.3 : 1) * assistSpread;
   let tz = aimZ + gaussian(match.rng) * spreadZ;
   let ty = Math.max(0.12, aimY + gaussian(match.rng) * spreadZ * 0.45);
-  if (power > 0.82 && kind !== "chip") ty += (power - 0.82) * 9 * (1.35 - skill); // quá lực: bóng bay vọt xà
+  // Quá lực: bóng bay vọt xà (hỗ trợ cao chỉ phạt khi gần kịch thanh lực).
+  const limit = mode === "assisted" ? 0.92 : 0.82;
+  if (power > limit && kind !== "chip") ty += (power - limit) * (mode === "assisted" ? 6 : 9) * (1.35 - skill);
   const tx = goal.x;
   const onTarget = Math.abs(tz) < FIELD.goalHalf - 0.05 && ty < FIELD.goalHeight - 0.05;
 
@@ -241,7 +326,7 @@ export const shootBall = (match, shooter, { power = 0.7, kind = "normal", aim = 
   const stats = match.teams[shooter.team].stats;
   stats.shots += 1;
   if (onTarget) stats.onTarget += 1;
-  emit(match, "shot", { id: shooter.id, kind, power, onTarget });
+  emit(match, "shot", { id: shooter.id, kind, power, onTarget, tz, ty });
   return { onTarget, target: { x: tx, y: ty, z: tz } };
 };
 

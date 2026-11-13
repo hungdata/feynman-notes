@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Gamepad2, Keyboard, Pause, Play, RotateCcw, Video, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, Check, Copy, Gamepad2, Globe, Keyboard, LogOut, Pause, Play, RotateCcw, Users, Video, Volume2, VolumeX } from "lucide-react";
 import "@fontsource-variable/lexend";
 import "../styles/football.css";
 import { DIFFICULTIES, FIELD, FORMATIONS, KITS, ROLE_NAMES, TEAM_PRESETS } from "../football/constants";
 import { clockText, createMatch, drainEvents, possessionShare, startSecondHalf, stepMatch, userContext } from "../football/sim";
 import { createController, keyName, padKey, touchButtons } from "../football/controls";
+import { applyPack, smoothView } from "../football/net";
+import { footballCall, inputState, openRoom } from "../football/online";
 import { netSwish, roar, startCrowd, stopCrowd, thud, whistle } from "../football/audio";
 import { isSoundOn, setSoundOn } from "../learn/sound";
 
 const SETTINGS_KEY = "feynman.football.settings";
-const DEFAULTS = { formation: "4-3-3", awayFormation: "4-2-3-1", difficulty: "normal", halfMinutes: 4, homeKit: "red", awayKit: "blue", night: false, camera: "tele" };
+const DEFAULTS = { formation: "4-3-3", awayFormation: "4-2-3-1", difficulty: "normal", halfMinutes: 4, homeKit: "red", awayKit: "blue", night: false, camera: "tele", assist: "assisted" };
+const ASSISTS = { assisted: "Cao", semi: "Vừa", manual: "Thủ công" };
 const CAMERAS = { tele: "Truyền hình", close: "Cận cảnh", end: "Dọc sân" };
 const HALF_OPTIONS = [3, 4, 6, 8];
 
@@ -144,7 +147,27 @@ const Choice = ({ value, current, onPick, children, style }) => (
   <button type="button" className={`fb-choice ${value === current ? "is-on" : ""}`} aria-pressed={value === current} onClick={() => onPick(value)} style={style}>{children}</button>
 );
 
-const MatchMenu = ({ settings, setSettings, onStart, onDemo }) => {
+/** Chơi online: tìm trận nhanh, tạo phòng có mã mời, hoặc nhập mã phòng của bạn bè. */
+const OnlinePanel = ({ onQuick, onCreate, onJoin, busy, error }) => {
+  const [code, setCode] = useState("");
+  return (
+    <section className="fb-online-panel" aria-label="Chơi online">
+      <h2><Globe size={18} />Chơi online với người thật</h2>
+      <p>Mỗi người cầm một đội 11 người, máy chủ điều khiển trận đấu. Chưa đăng nhập thì vào bằng tài khoản khách.</p>
+      <div className="fb-online-actions">
+        <button type="button" className="fb-start" disabled={busy} onClick={onQuick}><Users size={17} />Tìm trận nhanh</button>
+        <button type="button" className="fb-secondary" disabled={busy} onClick={onCreate}>Tạo phòng, mời bạn</button>
+        <form className="fb-code-form" onSubmit={(event) => { event.preventDefault(); if (code.trim()) onJoin(code.trim().toUpperCase()); }}>
+          <input aria-label="Mã phòng" placeholder="Mã phòng" maxLength={5} value={code} onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} />
+          <button type="submit" className="fb-secondary" disabled={busy || code.length < 5}>Vào</button>
+        </form>
+      </div>
+      {error && <p className="fb-online-error" role="alert">{error}</p>}
+    </section>
+  );
+};
+
+const MatchMenu = ({ settings, setSettings, onStart, onDemo, online }) => {
   const set = (key) => (value) => setSettings((old) => ({ ...old, [key]: value }));
   const home = KITS[settings.homeKit];
   const away = KITS[settings.awayKit === settings.homeKit ? (settings.homeKit === "white" ? "black" : "white") : settings.awayKit];
@@ -167,6 +190,7 @@ const MatchMenu = ({ settings, setSettings, onStart, onDemo }) => {
           <fieldset><legend>Mỗi hiệp</legend><div className="fb-choices">{HALF_OPTIONS.map((minutes) => <Choice key={minutes} value={minutes} current={settings.halfMinutes} onPick={set("halfMinutes")}>{minutes} phút</Choice>)}</div></fieldset>
           <fieldset><legend>Áo đội nhà</legend><div className="fb-choices">{Object.entries(KITS).map(([id, kit]) => <Choice key={id} value={id} current={settings.homeKit} onPick={set("homeKit")} style={{ "--swatch": kit.shirt }}><i className="fb-swatch" />{kit.name}</Choice>)}</div></fieldset>
           <fieldset><legend>Áo đội khách</legend><div className="fb-choices">{Object.entries(KITS).map(([id, kit]) => <Choice key={id} value={id} current={settings.awayKit} onPick={set("awayKit")} style={{ "--swatch": kit.shirt }}><i className="fb-swatch" />{kit.name}</Choice>)}</div></fieldset>
+          <fieldset><legend>Hỗ trợ chuyền &amp; sút</legend><div className="fb-choices">{Object.entries(ASSISTS).map(([id, name]) => <Choice key={id} value={id} current={settings.assist} onPick={set("assist")}>{name}</Choice>)}</div></fieldset>
           <fieldset><legend>Sân &amp; camera</legend><div className="fb-choices"><Choice value={false} current={settings.night} onPick={set("night")}>Ban ngày</Choice><Choice value={true} current={settings.night} onPick={set("night")}>Đá đêm</Choice>{Object.entries(CAMERAS).map(([id, name]) => <Choice key={id} value={id} current={settings.camera} onPick={set("camera")}>{name}</Choice>)}</div></fieldset>
         </div>
         <details className="fb-how"><summary>Bảng phím (giống FO4)</summary><ControlsSheet /></details>
@@ -174,6 +198,57 @@ const MatchMenu = ({ settings, setSettings, onStart, onDemo }) => {
           <button type="button" className="fb-start" onClick={onStart}><Play size={18} />Vào trận</button>
           <button type="button" className="fb-secondary" onClick={onDemo}>Xem máy đá với máy</button>
         </div>
+        {online}
+      </div>
+    </div>
+  );
+};
+
+/** Sảnh chờ phòng online: hai ghế, chọn sơ đồ/áo/hỗ trợ, bấm sẵn sàng; chủ phòng chọn thời lượng hiệp. */
+const OnlineLobby = ({ lobby, settings, setSettings, onReady, onLeave, connection, error }) => {
+  const [copied, setCopied] = useState(false);
+  const me = lobby.seats[lobby.you];
+  const field = { formation: "formation", homeKit: "kit", assist: "assist" };
+  // Đổi sơ đồ/áo/hỗ trợ là báo ngay cho máy chủ để đối thủ thấy.
+  const set = (key) => (value) => {
+    setSettings((old) => ({ ...old, [key]: value }));
+    onReady({ formation: settings.formation, kit: settings.homeKit, assist: settings.assist, [field[key]]: value, ready: me?.ready ?? false });
+  };
+  const link = typeof window !== "undefined" ? `${window.location.origin}/bong-da?room=${lobby.code}` : "";
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); window.setTimeout(() => setCopied(false), 2000); } catch { setCopied(false); }
+  };
+  const choice = { formation: settings.formation, kit: settings.homeKit, assist: settings.assist };
+  return (
+    <div className="fb-menu">
+      <div className="fb-menu-card fb-lobby">
+        <header className="fb-menu-head">
+          <button type="button" className="fb-pill" onClick={onLeave}><LogOut size={16} />Rời phòng</button>
+          <h1>Phòng <span>{lobby.code}</span></h1>
+          <p>{lobby.status === "playing" ? "Trận đang diễn ra…" : lobby.seats[1] ? "Hai người đã vào. Bấm “Sẵn sàng” để bắt đầu." : "Gửi mã phòng hoặc đường dẫn cho bạn bè để vào đá cùng."} {connection && connection !== "connected" ? "· Đang kết nối lại…" : ""}</p>
+          <button type="button" className="fb-secondary fb-copy" onClick={copy}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? "Đã chép đường dẫn" : "Chép đường dẫn mời"}</button>
+        </header>
+        <div className="fb-seats">
+          {lobby.seats.map((seat, index) => (
+            <div key={index} className={`fb-seat ${seat?.ready ? "is-ready" : ""} ${index === lobby.you ? "is-you" : ""}`} style={{ "--kit": seat ? KITS[seat.kit]?.shirt : "#334" }}>
+              <small>{index === 0 ? "Đội nhà" : "Đội khách"}{index === lobby.you ? " · bạn" : ""}</small>
+              <strong>{seat ? seat.name : "Đang chờ người chơi…"}</strong>
+              {seat && <span>{seat.formation} · {KITS[seat.kit]?.name} · Hỗ trợ {ASSISTS[seat.assist]}</span>}
+              {seat && <em>{seat.ready ? "Sẵn sàng" : seat.connected ? "Chưa sẵn sàng" : "Mất kết nối"}</em>}
+            </div>
+          ))}
+        </div>
+        <div className="fb-options">
+          <fieldset><legend>Sơ đồ</legend><div className="fb-choices">{Object.keys(FORMATIONS).map((name) => <Choice key={name} value={name} current={settings.formation} onPick={set("formation")}>{name}</Choice>)}</div></fieldset>
+          <fieldset><legend>Áo đấu</legend><div className="fb-choices">{Object.entries(KITS).map(([id, kit]) => <Choice key={id} value={id} current={settings.homeKit} onPick={set("homeKit")} style={{ "--swatch": kit.shirt }}><i className="fb-swatch" />{kit.name}</Choice>)}</div></fieldset>
+          <fieldset><legend>Hỗ trợ chuyền &amp; sút</legend><div className="fb-choices">{Object.entries(ASSISTS).map(([id, name]) => <Choice key={id} value={id} current={settings.assist} onPick={set("assist")}>{name}</Choice>)}</div></fieldset>
+          {lobby.you === 0 && <fieldset><legend>Mỗi hiệp (chủ phòng chọn)</legend><div className="fb-choices">{HALF_OPTIONS.map((minutes) => <Choice key={minutes} value={minutes} current={lobby.settings.halfMinutes} onPick={(value) => onReady({ ...choice, halfMinutes: value, ready: me?.ready ?? false })}>{minutes} phút</Choice>)}</div></fieldset>}
+        </div>
+        <div className="fb-menu-actions">
+          <button type="button" className="fb-start" disabled={!lobby.seats[1] || lobby.status === "playing"} onClick={() => onReady({ ...choice, ready: !me?.ready })}><Play size={18} />{me?.ready ? "Huỷ sẵn sàng" : "Sẵn sàng"}</button>
+        </div>
+        {error && <p className="fb-online-error" role="alert">{error}</p>}
+        <details className="fb-how"><summary>Bảng phím (giống FO4)</summary><ControlsSheet /></details>
       </div>
     </div>
   );
@@ -228,8 +303,9 @@ const pollGamepad = (match, controller, now, padState, stickInUse, togglePause, 
 
 /** Ảnh chụp số liệu trận để hiện trên bảng (React không đọc trực tiếp trận đang chạy). */
 const reportOf = (match) => ({
+  you: match.user?.team ?? 0,
   teams: match.teams.map((team) => ({ short: team.short, score: team.score, stats: { ...team.stats } })),
-  possession: possessionShare(match),
+  possession: match.netPossession ?? possessionShare(match),
   scorers: match.scorers.map((goal) => ({ ...goal })),
 });
 
@@ -253,6 +329,15 @@ const FootballPage = () => {
   const ringRef = useRef(true);
   const [controller] = useState(() => createController());
   const controllerRef = useRef(controller);
+  // Online: phiên phòng đấu, cấu hình trận máy chủ gửi, bản trận để vẽ.
+  const onlineRef = useRef(null);
+  const roomAttemptRef = useRef(0);
+  const screenRef = useRef("menu");
+  const [lobby, setLobby] = useState(null);
+  const [onlineBusy, setOnlineBusy] = useState(false);
+  const [onlineError, setOnlineError] = useState("");
+  const [connection, setConnection] = useState("");
+  const [names, setNames] = useState(null);
   const radarRef = useRef(null);
   const powerRef = useRef(null);
   const edgeRef = useRef(null);
@@ -268,6 +353,7 @@ const FootballPage = () => {
     if (next) controllerRef.current.reset();
     setPaused(next);
   }, []);
+  useEffect(() => { screenRef.current = screen; }, [screen]);
 
   const togglePause = useCallback(() => {
     const match = matchRef.current;
@@ -324,14 +410,25 @@ const FootballPage = () => {
   useEffect(() => {
     if (screen !== "playing" && screen !== "halftime" && screen !== "fulltime") return undefined;
     if (matchRef.current && stadiumRef.current) return undefined;
-    const match = createMatch({ difficulty: settings.difficulty, halfMinutes: settings.halfMinutes, homeFormation: settings.formation, awayFormation: settings.awayFormation, homeKit: settings.homeKit, awayKit: settings.awayKit, autoplay: demo });
+    const online = onlineRef.current?.config ? onlineRef.current : null;
+    const match = online
+      ? createMatch({ ...online.config, humans: [0, 1], localTeam: online.you })
+      : createMatch({ difficulty: settings.difficulty, halfMinutes: settings.halfMinutes, homeFormation: settings.formation, awayFormation: settings.awayFormation, homeKit: settings.homeKit, awayKit: settings.awayKit, autoplay: demo, assist: settings.assist });
+    if (online) {
+      // Máy chủ chạy trận; ở đây chỉ vẽ theo ảnh chụp nhận được.
+      online.view = match;
+      online.snapped = false;
+      // Tên hai người chơi thay cho tên đội mặc định (bảng tỉ số, thống kê cuối trận).
+      online.config.names?.forEach((name, i) => { match.teams[i].short = name.slice(0, 12); match.teams[i].name = name; });
+      if (online.lastPack) { applyPack(match, online.lastPack, { snap: true }); online.snapped = true; online.lastPack = null; }
+    }
     let stadium = null;
     let cancelled = false;
     let frame = 0;
     let last = performance.now();
     let hudAt = 0;
-    const controller = controllerRef.current;
-    controller.reset();
+    const controller = online ? createController({ act: (_view, action, opts) => online.session.action(action, opts) }) : createController();
+    controllerRef.current = controller;
 
     const begin = async () => {
       try {
@@ -357,9 +454,22 @@ const FootballPage = () => {
         pollGamepad(match, controller, now, padState.current, stickRef.current.id !== null, togglePause, pausedRef);
         const basis = stadium.basis();
         const { charge, context } = pausedRef.current ? { charge: null, context: userContext(match) } : controller.update(match, basis, now);
-        if (!pausedRef.current) stepMatch(match, dt);
+        if (online) {
+          smoothView(match, dt);
+          online.session.input(inputState(pausedRef.current ? { mx: 0, mz: 0 } : match.user.input));
+          // Reconnect snapshots have no historical events: recover their screen
+          // directly from the authoritative phase, including a finished match.
+          if ((match.phase === "halftime" || match.phase === "fulltime") && screenRef.current !== match.phase) {
+            changePause(false);
+            setReport(reportOf(match));
+            setScreen(match.phase);
+          } else if (screenRef.current === "halftime" && match.phase !== "halftime" && match.phase !== "fulltime") {
+            changePause(false);
+            setScreen("playing");
+          }
+        } else if (!pausedRef.current) stepMatch(match, dt);
         handleEvents(match, stadium);
-        stadium.render(pausedRef.current ? 0 : dt, { charging: Boolean(charge) });
+        stadium.render(pausedRef.current && !online ? 0 : dt, { charging: Boolean(charge) });
         // Thanh lực dưới chân cầu thủ đang điều khiển.
         const me = match.players[match.user.controlledId];
         const bar = powerRef.current;
@@ -402,6 +512,7 @@ const FootballPage = () => {
             context,
             hint: hintFor(context),
             mentality: match.teams[match.user.team].mentality,
+            kits: match.teams.map((team) => team.kit.shirt),
             phase: match.phase,
           });
         }
@@ -419,6 +530,7 @@ const FootballPage = () => {
       stadium?.dispose();
       matchRef.current = null;
       stadiumRef.current = null;
+      if (online) online.view = null;
     };
     // Trận mới khi bấm “Đá lại” (round) hoặc vào/ra menu.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -428,9 +540,9 @@ const FootballPage = () => {
 
   // Bàn phím.
   useEffect(() => {
-    if (screen === "menu") return undefined;
-    const controller = controllerRef.current;
+    if (screen === "menu" || screen === "lobby") return undefined;
     const down = (event) => {
+      const controller = controllerRef.current;
       if (isTyping(event.target) || event.metaKey) return;
       if (event.altKey) {
         // Alt + Enter (FO4): bật/tắt toàn màn hình.
@@ -463,9 +575,9 @@ const FootballPage = () => {
       if (pausedRef.current) return;
       const key = keyName(event);
       if (!key) return;
-      controller.release(matchRef.current, key, event.timeStamp || performance.now());
+      controllerRef.current.release(matchRef.current, key, event.timeStamp || performance.now());
     };
-    const blur = () => controller.reset();
+    const blur = () => controllerRef.current.reset();
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     window.addEventListener("blur", blur);
@@ -504,19 +616,121 @@ const FootballPage = () => {
     if (knobRef.current) knobRef.current.style.transform = "translate(0, 0)";
   };
 
+  /* ----- online ----- */
+  const leaveRoom = useCallback(() => {
+    roomAttemptRef.current += 1;
+    const online = onlineRef.current;
+    onlineRef.current = null;
+    if (online) { void online.session.leave(); online.session.close(); }
+    setLobby(null);
+    setNames(null);
+    setConnection("");
+    setOnlineBusy(false);
+    changePause(false);
+    setScreen("menu");
+    if (window.location.search.includes("room=")) window.history.replaceState(null, "", "/bong-da");
+  }, [changePause]);
+
+  const enterRoom = useCallback(async (request) => {
+    const attempt = ++roomAttemptRef.current;
+    setOnlineBusy(true);
+    setOnlineError("");
+    try {
+      const joined = await request();
+      if (attempt !== roomAttemptRef.current) return;
+      onlineRef.current?.session.close();
+      const online = { code: joined.code, you: joined.you, config: null, view: null, lastPack: null, snapped: false, session: null };
+      online.session = openRoom(joined.code, {
+        onLobby: (value) => { if (onlineRef.current !== online) return; online.you = value.you; setLobby(value); },
+        onStart: ({ config }) => {
+          if (onlineRef.current !== online) return;
+          online.config = config;
+          online.lastPack = null;
+          setNames(config.names);
+          setDemo(false);
+          changePause(false);
+          setRound((value) => value + 1);
+          setScreen("playing");
+        },
+        onState: (pack) => {
+          if (onlineRef.current !== online) return;
+          if (online.view) { applyPack(online.view, pack, { snap: !online.snapped }); online.snapped = true; } else online.lastPack = pack;
+        },
+        onEnd: ({ reason }) => {
+          if (onlineRef.current !== online) return;
+          changePause(false);
+          showBanner(reason || "Trận đấu kết thúc", "warn", 4000);
+          if (online.view) {
+            setReport(reportOf(online.view));
+            setScreen("fulltime");
+          } else {
+            leaveRoom();
+            setOnlineError(reason || "Phòng đấu đã kết thúc. Hãy tìm trận mới.");
+          }
+        },
+        onError: (error) => {
+          if (onlineRef.current !== online) return;
+          leaveRoom();
+          setOnlineError(error.status === 401
+            ? "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi tạo phòng hoặc vào lại bằng mã phòng."
+            : "Phòng đấu không còn khả dụng. Hãy tạo phòng mới hoặc nhập lại mã phòng để tiếp tục.");
+        },
+        onConnection: (state) => { if (onlineRef.current === online) setConnection(state); },
+      });
+      onlineRef.current = online;
+      setLobby(joined);
+      setScreen("lobby");
+      window.history.replaceState(null, "", `/bong-da?room=${joined.code}`);
+    } catch (error) {
+      if (attempt === roomAttemptRef.current) setOnlineError(error.message);
+    } finally {
+      if (attempt === roomAttemptRef.current) setOnlineBusy(false);
+    }
+  }, [changePause, leaveRoom, showBanner]);
+
+  const readyUp = useCallback((body) => {
+    const online = onlineRef.current;
+    if (!online) return;
+    online.session.ready(body).catch((error) => setOnlineError(error.message));
+  }, []);
+
+  // Mở đường dẫn mời /bong-da?room=MÃ: tự vào phòng.
+  // (Hẹn giờ 0 ms + huỷ khi dọn: React StrictMode chạy hiệu ứng hai lần nhưng chỉ vào phòng một lần.)
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("room");
+    if (!code) return undefined;
+    const timer = window.setTimeout(() => { void enterRoom(() => footballCall(`rooms/${code.toUpperCase()}/join`)); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [enterRoom]);
+
+  useEffect(() => () => { roomAttemptRef.current += 1; onlineRef.current?.session.close(); }, []);
+
   const start = (auto = false) => {
+    roomAttemptRef.current += 1;
+    setOnlineBusy(false);
     setDemo(auto);
     changePause(false);
     setRound((value) => value + 1);
     setScreen("playing");
   };
   const restart = () => {
+    if (onlineRef.current) {
+      // Online: cả hai cùng bấm “Đá lại” thì máy chủ mở trận mới.
+      onlineRef.current.session.next().catch((error) => setOnlineError(error.message));
+      showBanner("Đang chờ đối thủ đồng ý đá lại…", "soft", 3000);
+      return;
+    }
     setDemo(false);
     changePause(false);
     setRound((value) => value + 1);
     setScreen("playing");
   };
   const secondHalf = () => {
+    if (onlineRef.current) {
+      onlineRef.current.session.next().catch(() => {});
+      showBanner("Chờ đối thủ… (tự đá tiếp sau 12 giây)", "soft", 3000);
+      return;
+    }
     if (matchRef.current) startSecondHalf(matchRef.current);
     setScreen("playing");
   };
@@ -534,18 +748,21 @@ const FootballPage = () => {
   const homeKit = KITS[settings.homeKit];
   const awayKit = KITS[settings.awayKit === settings.homeKit ? (settings.homeKit === "white" ? "black" : "white") : settings.awayKit];
 
-  if (screen === "menu") return <MatchMenu settings={settings} setSettings={setSettings} onStart={() => start(false)} onDemo={() => start(true)} />;
+  const onlinePanel = <OnlinePanel busy={onlineBusy} error={onlineError} onQuick={() => enterRoom(() => footballCall("quick"))} onCreate={() => enterRoom(() => footballCall("rooms", { halfMinutes: settings.halfMinutes }))} onJoin={(code) => enterRoom(() => footballCall(`rooms/${code}/join`))} />;
+  if (screen === "menu") return <MatchMenu settings={settings} setSettings={setSettings} onStart={() => start(false)} onDemo={() => start(true)} online={onlinePanel} />;
+  if (screen === "lobby" && lobby) return <OnlineLobby lobby={lobby} settings={settings} setSettings={setSettings} onReady={readyUp} onLeave={leaveRoom} connection={connection} error={onlineError} />;
+  const isOnline = Boolean(names);
 
   return (
     <div className={`fb-shell ${touch ? "is-touch" : ""}`}>
       <div className="fb-stage" ref={holderRef} />
       {failed && <div className="fb-overlay" role="alert"><div className="fb-panel"><h2>Máy này chưa bật được đồ họa 3D</h2><p>Trình duyệt không tạo được WebGL.</p><Link className="fb-start" to="/san-truong-3d">Về sân trường</Link></div></div>}
       <header className="fb-scoreboard" aria-live="polite">
-        <span className="fb-team" style={{ "--kit": homeKit.shirt }}>{TEAM_PRESETS.home.short}</span>
+        <span className="fb-team" style={{ "--kit": hud?.kits?.[0] ?? homeKit.shirt }}>{isOnline ? names[0].slice(0, 12) : TEAM_PRESETS.home.short}</span>
         <strong>{hud?.score[0] ?? 0}<em>-</em>{hud?.score[1] ?? 0}</strong>
-        <span className="fb-team" style={{ "--kit": awayKit.shirt }}>{TEAM_PRESETS.away.short}</span>
+        <span className="fb-team" style={{ "--kit": hud?.kits?.[1] ?? awayKit.shirt }}>{isOnline ? names[1].slice(0, 12) : TEAM_PRESETS.away.short}</span>
         <time>{hud?.clock ?? "00:00"}</time>
-        <small>{hud?.half === 2 ? "Hiệp 2" : "Hiệp 1"}</small>
+        <small>{hud?.half === 2 ? "Hiệp 2" : "Hiệp 1"}{isOnline ? ` · Online${connection && connection !== "connected" ? " (đang nối lại)" : ""}` : ""}</small>
       </header>
       <div className="fb-top-actions">
         <button type="button" className="fb-icon" onClick={cycleCamera} title={`Camera: ${CAMERAS[settings.camera]}`} aria-label="Đổi góc camera"><Video size={18} /></button>
@@ -575,12 +792,14 @@ const FootballPage = () => {
 
       {paused && screen === "playing" && <div className="fb-overlay">
         <div className="fb-panel">
-          <h2>Tạm dừng</h2>
+          <h2>{isOnline ? "Menu (trận online vẫn tiếp tục)" : "Tạm dừng"}</h2>
           <div className="fb-panel-actions">
-            <button type="button" className="fb-start" onClick={() => changePause(false)}><Play size={18} />Đá tiếp</button>
-            <button type="button" className="fb-secondary" onClick={restart}><RotateCcw size={16} />Đá lại</button>
-            <button type="button" className="fb-secondary" onClick={() => { changePause(false); setScreen("menu"); }}>Đổi đội hình</button>
-            <Link className="fb-secondary" to="/san-truong-3d">Về sân trường</Link>
+            <button type="button" className="fb-start" onClick={() => changePause(false)}><Play size={18} />{isOnline ? "Quay lại trận" : "Đá tiếp"}</button>
+            {isOnline ? <button type="button" className="fb-secondary" onClick={leaveRoom}><LogOut size={16} />Rời trận (xử thua)</button> : <>
+              <button type="button" className="fb-secondary" onClick={restart}><RotateCcw size={16} />Đá lại</button>
+              <button type="button" className="fb-secondary" onClick={() => { changePause(false); setScreen("menu"); }}>Đổi đội hình</button>
+              <Link className="fb-secondary" to="/san-truong-3d">Về sân trường</Link>
+            </>}
           </div>
           <div className="fb-choices fb-camera-row">{Object.entries(CAMERAS).map(([id, name]) => <Choice key={id} value={id} current={settings.camera} onPick={(value) => setSettings((old) => ({ ...old, camera: value }))}>{name}</Choice>)}</div>
           {report && <StatsTable report={report} />}
@@ -593,20 +812,20 @@ const FootballPage = () => {
           <h2>Hết hiệp 1</h2>
           <p className="fb-final">{report.teams[0].short} {report.teams[0].score} - {report.teams[1].score} {report.teams[1].short}</p>
           <StatsTable report={report} />
-          <p className="fb-note">Sang hiệp 2 hai đội đổi sân.</p>
+          <p className="fb-note">Sang hiệp 2 hai đội đổi sân.{isOnline ? " Trận online tự đá tiếp sau 12 giây." : ""}</p>
           <div className="fb-panel-actions"><button type="button" className="fb-start" onClick={secondHalf}><Play size={18} />Đá hiệp 2</button></div>
         </div>
       </div>}
 
       {screen === "fulltime" && report && <div className="fb-overlay">
         <div className="fb-panel">
-          <h2>{report.teams[0].score > report.teams[1].score ? "Chiến thắng!" : report.teams[0].score < report.teams[1].score ? "Thua rồi…" : "Hòa"}</h2>
+          <h2>{report.teams[report.you].score > report.teams[1 - report.you].score ? "Chiến thắng!" : report.teams[report.you].score < report.teams[1 - report.you].score ? "Thua rồi…" : "Hòa"}</h2>
           <p className="fb-final">{report.teams[0].short} {report.teams[0].score} - {report.teams[1].score} {report.teams[1].short}</p>
           {report.scorers.length > 0 && <ul className="fb-scorers">{report.scorers.map((goal, i) => <li key={i} className={goal.team === 0 ? "is-home" : "is-away"}>⚽ {goal.minute}' {goal.name}{goal.own ? " (phản lưới)" : ""}</li>)}</ul>}
           <StatsTable report={report} />
           <div className="fb-panel-actions">
             <button type="button" className="fb-start" onClick={restart}><RotateCcw size={18} />Đá lại</button>
-            <button type="button" className="fb-secondary" onClick={() => setScreen("menu")}>Đổi đội hình</button>
+            {isOnline ? <button type="button" className="fb-secondary" onClick={leaveRoom}><LogOut size={16} />Rời phòng</button> : <button type="button" className="fb-secondary" onClick={() => setScreen("menu")}>Đổi đội hình</button>}
             <Link className="fb-secondary" to="/san-truong-3d">Về sân trường</Link>
           </div>
         </div>

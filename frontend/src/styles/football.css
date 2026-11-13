@@ -234,3 +234,28 @@
 @media (prefers-reduced-motion: reduce) {
   .fb-banner, .fb-banner.is-goal { animation: none; }
 }
+
+/* ---------- chơi online ---------- */
+
+.fb-online-panel { margin-top: 18px; padding: 16px 18px; border-radius: 14px; border: 1px solid rgb(94 225 255 / 30%); background: linear-gradient(120deg, rgb(31 95 209 / 22%), rgb(10 14 32 / 60%)); }
+.fb-online-panel h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 18px; color: var(--fb-cyan); }
+.fb-online-panel p { margin: 0 0 12px; color: var(--fb-ink-2); font-size: 13px; }
+.fb-online-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.fb-code-form { display: flex; gap: 6px; }
+.fb-code-form input { width: 120px; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--fb-line); background: rgb(0 0 0 / 30%); color: var(--fb-ink); font: 700 18px/1 inherit; font-family: inherit; letter-spacing: 0.18em; text-transform: uppercase; }
+.fb-code-form input:focus-visible { outline: 3px solid var(--fb-gold); outline-offset: 1px; }
+.fb-online-error { margin: 10px 0 0 !important; color: #ff8f8f !important; }
+.fb-start:disabled, .fb-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+.fb-lobby .fb-menu-head h1 span { letter-spacing: 0.16em; }
+.fb-copy { margin-top: 12px; height: 38px; }
+.fb-seats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0; }
+.fb-seat { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px 14px 22px; border-radius: 12px; border: 1px solid var(--fb-line); background: rgb(255 255 255 / 5%); }
+.fb-seat::before { content: ""; position: absolute; left: 8px; top: 12px; bottom: 12px; width: 6px; border-radius: 3px; background: var(--kit); }
+.fb-seat.is-you { border-color: rgb(255 210 63 / 55%); }
+.fb-seat.is-ready { background: rgb(43 212 125 / 12%); }
+.fb-seat small { color: var(--fb-ink-2); font-size: 12px; }
+.fb-seat strong { font-size: 17px; }
+.fb-seat span { color: var(--fb-ink-2); font-size: 13px; }
+.fb-seat em { font-style: normal; font-size: 13px; font-weight: 700; color: var(--fb-gold); }
+.fb-seat.is-ready em { color: var(--fb-green); }
+@media (max-width: 640px) { .fb-seats { grid-template-columns: 1fr; } }

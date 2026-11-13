@@ -4,10 +4,9 @@
  */
 import { FIELD, PHYSICS } from "./constants.js";
 import { clearBall, keeperDistribute, passBall, shootBall } from "./actions.js";
-import { angleBetween, attackGoal, clamp, dist, dirOf, forward, gaussian, humanId, humanTeam, keeperOf, laneOpenness, nearestOpponent, norm, offsideLine, ownGoal, owner, teamOf } from "./util.js";
+import { angleBetween, attackGoal, clamp, dist, dirOf, forward, gaussian, humanOf, keeperOf, laneOpenness, nearestOpponent, norm, offsideLine, ownGoal, owner, teamOf } from "./util.js";
 
 const FORWARDS = new Set(["ST", "LW", "RW", "CAM"]);
-const WIDE = new Set(["LW", "RW", "LM", "RM", "LB", "RB"]);
 
 /** Dự đoán đường bóng trong vài giây tới (không tính va chạm), để chạy đón bóng. */
 export const predictBall = (match, seconds = 2.6, step = 0.1) => {
@@ -53,23 +52,99 @@ export const interceptPoint = (player, path, reaction = 0.15, maxY = 2.4) => {
 
 const inside = (point, margin = 1) => ({ x: clamp(point.x, -FIELD.halfL + margin, FIELD.halfL - margin), z: clamp(point.z, -FIELD.halfW + margin, FIELD.halfW - margin) });
 
-/** Vị trí đội hình theo bóng: dâng cao khi cầm bóng, co cụm khi phòng ngự. */
+const DEFENDERS = new Set(["CB", "LB", "RB"]);
+const MIDFIELD = new Set(["CDM", "CM", "LM", "RM"]);
+const FULLBACKS = new Set(["LB", "RB"]);
+const WINGERS = new Set(["LW", "RW", "LM", "RM"]);
+
+/** Cầu thủ đối phương dâng cao nhất (gần khung thành đội `team` nhất), theo toạ độ của `team`. */
+const deepestAttacker = (match, team) => {
+  let deepest = FIELD.halfL;
+  for (const other of match.players) {
+    if (other.team === team || other.sentOff || other.role === "GK") continue;
+    deepest = Math.min(deepest, forward(match, team, other.x));
+  }
+  return deepest;
+};
+
+/**
+ * Vị trí theo vai trò (toạ độ của đội, dương là phía khung thành đối phương):
+ * hậu vệ giữ một hàng và luôn ở sau bóng, tiền vệ trụ làm điểm tựa trước hàng thủ,
+ * tiền vệ giữa sân nối bóng, tiền đạo đứng sát vạch việt vị, cánh bám biên khi tấn công.
+ */
 export const shapeTarget = (match, player, attacking) => {
   const dir = dirOf(match, player.team);
   const { ball } = match;
   const bx = forward(match, player.team, ball.x);
   const { depth, width } = player.slot;
+  const role = player.role;
   // Chiến thuật [ ] (−2 phòng ngự sâu … +2 tấn công tổng lực) và Z giữ để dâng đội hình.
   const team = match.teams[player.team];
-  const push = (team.mentality || 0) * 3.5 + (player.team === humanTeam(match) && match.input.pushUp ? 8 : 0);
-  const back = attacking ? clamp(bx * 0.55 - 12 + push, -36, 18) : clamp(bx * 0.62 - 17 + push, -43, 10);
-  const front = attacking ? Math.min(46, back + 40) : back + 27;
-  const t = (depth - 0.19) / 0.58;
-  let fx = back + t * (front - back);
-  if (attacking && FORWARDS.has(player.role)) fx = Math.min(fx, offsideLine(match, player.team) - 0.7);
-  let z = width * FIELD.halfW * (attacking ? 0.9 : 0.6) * dir;
-  z += (ball.z - z) * (attacking ? 0.18 : 0.36);
+  const push = (team.mentality || 0) * 3.5;
+  const pushUp = humanOf(match, player.team)?.input.pushUp ? 8 : 0;
+  let line;
+  if (attacking) line = clamp(bx * 0.5 - 14 + push + pushUp, -38, 14);
+  else {
+    line = clamp(bx * 0.6 - 18 + push, -44, 8);
+    // Không để tiền đạo đối phương thoát xuống sau lưng: hàng thủ lùi theo người dâng cao nhất của họ.
+    // Z (dâng đội hình) vẫn đẩy hàng thủ lên, chấp nhận rủi ro như FO4.
+    line = Math.max(-44, Math.min(line, deepestAttacker(match, player.team) + 1.5)) + pushUp;
+  }
+  const offside = offsideLine(match, player.team);
+  let fx;
+  if (DEFENDERS.has(role)) {
+    fx = line;
+    if (attacking && FULLBACKS.has(role)) {
+      // Hậu vệ biên dâng lên khi đội cầm bóng ở phần sân đối phương, nhưng chỉ bên có bóng mới chồng biên.
+      const ballSide = Math.sign(ball.z * dir) === Math.sign(width);
+      fx = line + (bx > 5 ? (ballSide ? 20 : 9) : 4);
+    }
+    if (attacking && role === "CB") fx = Math.min(fx, bx - 8);
+  } else if (role === "CDM") {
+    fx = attacking ? Math.min(line + 13, bx - 2) : line + 9;
+  } else if (MIDFIELD.has(role)) {
+    const lean = (depth - 0.45) * 22;
+    fx = attacking ? clamp(bx - 3 + lean, line + 15, line + 36) : line + 13 + lean * 0.4;
+  } else if (role === "CAM") {
+    fx = attacking ? clamp(bx + 7, line + 22, offside - 3) : line + 20;
+  } else {
+    // Tiền đạo: sát vạch việt vị khi tấn công; khi phòng ngự đứng cao chờ phản công.
+    fx = attacking ? Math.min(offside - 0.8, Math.max(bx + 14, line + 30)) : line + (role === "ST" ? 30 : 24);
+  }
+  if (attacking && FORWARDS.has(role)) fx = Math.min(fx, offside - 0.7);
+  // Chiều ngang: tấn công thì dàn rộng (cánh bám biên), phòng ngự thì co cụm về phía bóng.
+  const spread = attacking ? (WINGERS.has(role) || FULLBACKS.has(role) ? 0.92 : 0.62) : 0.55;
+  let z = width * FIELD.halfW * spread * dir;
+  z += (ball.z - z) * (attacking ? (WINGERS.has(role) ? 0.06 : 0.16) : 0.4);
   return inside({ x: fx * dir, z }, 1.5);
+};
+
+/**
+ * Tìm khoảng trống quanh vị trí gốc: xa đối thủ, đường chuyền từ người cầm bóng thoáng,
+ * không việt vị, không lệch quá xa vị trí. Kết quả nhớ 0,6 giây cho đỡ tốn tính toán.
+ */
+export const findSpace = (match, player, base, holder, radius = 6) => {
+  if (player.space && player.space.until > match.time && dist(player.space.base, base) < 3) return player.space.point;
+  const line = offsideLine(match, player.team);
+  let best = base;
+  let bestScore = -Infinity;
+  for (let i = 0; i <= 12; i += 1) {
+    const angle = (i / 12) * Math.PI * 2;
+    const r = i === 12 ? 0 : radius * (i % 2 ? 0.55 : 1);
+    const point = inside({ x: base.x + Math.cos(angle) * r, z: base.z + Math.sin(angle) * r }, 2);
+    let near = 9;
+    for (const other of match.players) {
+      if (other.team === player.team || other.sentOff) continue;
+      near = Math.min(near, dist(other, point));
+    }
+    const lane = holder ? Math.min(laneOpenness(match, holder, point, player.team), 6) : 3;
+    const tooClose = holder && dist(holder, point) < 7 ? 2 : 0;
+    const offsideRisk = forward(match, player.team, point.x) > line - 0.5 ? 4 : 0;
+    const score = near * 0.6 + lane * 0.55 - dist(base, point) * 0.12 - tooClose - offsideRisk;
+    if (score > bestScore) { bestScore = score; best = point; }
+  }
+  player.space = { point: best, base: { x: base.x, z: base.z }, until: match.time + 0.6 };
+  return best;
 };
 
 /** Mục tiêu của thủ môn: trên đường phân giác góc sút, lùi về khi bóng gần. */
@@ -189,53 +264,71 @@ const decideCarrier = (match, player) => {
 
 /* ---------- từng tình huống ---------- */
 
-const supportCarrier = (match, holder, player) => {
+const supportCarrier = (match, holder, player, helpers) => {
   const base = shapeTarget(match, player, true);
   if (player.runTo && player.runTo.until > match.time) return setGoal(player, player.runTo, true);
   if (match.ball.pass && match.ball.pass.to === player.id) return setGoal(player, match.ball.pass.target, true);
-  // Tiền đạo thỉnh thoảng băng xuống khi đồng đội cầm bóng ở giữa sân.
+  const dir = dirOf(match, player.team);
+  const holderAhead = forward(match, player.team, holder.x);
+  // Tiền đạo/cánh băng xuống sau lưng hàng thủ khi người cầm bóng có thời gian chuyền.
   if (FORWARDS.has(player.role) && player.runPlan && player.runPlan.until > match.time) return setGoal(player, player.runPlan, true);
-  if (FORWARDS.has(player.role) && match.rng() < 0.006) {
-    const line = offsideLine(match, player.team);
-    const dir = dirOf(match, player.team);
-    player.runPlan = { ...inside({ x: (line - 0.9) * dir, z: player.z * 0.8 }), until: match.time + 1.6 };
+  const line = offsideLine(match, player.team);
+  const room = FIELD.halfL - line;
+  if (FORWARDS.has(player.role) && room > 12 && nearestOpponent(match, holder).d > 4 && match.rng() < 0.01) {
+    const diagonal = clamp(player.z * 0.6 + (match.rng() - 0.5) * 10, -FIELD.halfW + 4, FIELD.halfW - 4);
+    // Đôi khi băng hơi sớm (như người thật) → có thể việt vị.
+    const early = match.rng() < 0.15 ? 2 : -0.6;
+    player.runPlan = { ...inside({ x: (line + early) * dir, z: diagonal }), until: match.time + 1.4 };
   }
-  // Người gần nhất lùi lại nhận bóng, mở góc chuyền.
-  const d = dist(holder, player);
-  if (d < 14 && d > 4) {
-    const away = nearestOpponent(match, player);
-    if (away.d < 3 && away.player) {
-      const step = norm(player.x - away.player.x, player.z - away.player.z);
-      return setGoal(player, inside({ x: base.x + step.x * 3, z: base.z + step.z * 3 }), false);
-    }
+  // Hai người gần nhất (thường là tiền vệ) chủ động tìm khoảng trống để nhận bóng, tạo tam giác chuyền.
+  if (helpers.includes(player)) {
+    const toward = norm(holder.x - base.x, holder.z - base.z);
+    const gap = dist(holder, base);
+    const pull = gap > 18 ? gap - 14 : 0;
+    const offer = { x: base.x + toward.x * pull, z: base.z + toward.z * pull };
+    return setGoal(player, findSpace(match, player, offer, holder, 7), dist(player, offer) > 10);
   }
-  if (WIDE.has(player.role) && ["LB", "RB"].includes(player.role) && forward(match, player.team, holder.x) > 15) {
-    // Hậu vệ biên dâng cao chồng biên.
-    const dir = dirOf(match, player.team);
-    return setGoal(player, inside({ x: base.x + 9 * dir, z: base.z }), false);
+  // Hậu vệ biên chồng biên khi cánh cùng phía đang cầm bóng ở phần sân đối phương.
+  if (FULLBACKS.has(player.role) && WINGERS.has(holder.role) && Math.sign(holder.z) === Math.sign(player.z) && holderAhead > 8) {
+    return setGoal(player, inside({ x: holder.x + 10 * dir, z: Math.sign(player.z) * (FIELD.halfW - 4) }), true);
   }
-  return setGoal(player, base, dist(player, base) > 12);
+  // Những người khác giữ vị trí nhưng dịch nhẹ vào chỗ trống quanh đó.
+  const spot = DEFENDERS.has(player.role) ? base : findSpace(match, player, base, holder, 4);
+  return setGoal(player, spot, dist(player, spot) > 12);
 };
 
 const defend = (match, holder, team, userTeam) => {
   const goal = ownGoal(match, team);
   const players = teamOf(match, team).filter((p) => p.role !== "GK");
-  const ranked = players.map((p) => ({ p, d: dist(p, holder) })).sort((a, b) => a.d - b.d);
-  const controlled = userTeam ? match.players[humanId(match)] : null;
-  const ai = ranked.filter((r) => r.p !== controlled);
+  const human = humanOf(match, team);
+  const controlled = human ? match.players[human.controlledId] : null;
   const goalSide = norm(goal.x - holder.x, goal.z - holder.z);
   const press = match.difficulty.press;
+  const holderDepth = forward(match, team, holder.x);
+  // Áp sát theo khu vực: chỉ người có vị trí gần bóng lên áp sát; trung vệ chỉ lên khi bóng ở 1/3 sân nhà.
+  const bases = new Map(players.map((p) => [p, shapeTarget(match, p, false)]));
+  const ranked = players
+    .filter((p) => p !== controlled)
+    .map((p) => {
+      const zone = dist(bases.get(p), holder);
+      const allowed = p.role !== "CB" || holderDepth < -18 || dist(p, holder) < 7;
+      return { p, d: dist(p, holder), score: dist(p, holder) * 0.7 + zone * 0.5 + (allowed ? 0 : 50) };
+    })
+    .sort((a, b) => a.score - b.score);
   let presser = null;
   let cover;
   if (userTeam) {
     // Đội người chơi: đồng đội chỉ áp sát khi được gọi (giữ Q) hoặc khi đứng sát người cầm bóng.
-    if (match.input.callPress || (ai[0] && ai[0].d < 4.5)) presser = ai[0]?.p;
-    cover = ai.find((r) => r.p !== presser)?.p;
+    const nearest = [...ranked].sort((a, b) => a.d - b.d)[0];
+    if (human?.input.callPress) presser = ranked[0]?.p;
+    else if (nearest && nearest.d < 4.5) presser = nearest.p;
+    cover = ranked.find((r) => r.p !== presser)?.p;
   } else {
-    presser = ai[0]?.p;
-    cover = ai[1]?.p;
+    presser = ranked[0]?.p;
+    cover = ranked[1]?.p;
   }
-  for (const { p } of ai) {
+  for (const p of players) {
+    if (p === controlled) continue;
     if (p === presser) {
       const close = dist(p, holder) < 3;
       const spot = close ? { x: holder.x + goalSide.x * 0.6, z: holder.z + goalSide.z * 0.6 } : { x: holder.x + goalSide.x * 1.4 + holder.vx * 0.3, z: holder.z + goalSide.z * 1.4 + holder.vz * 0.3 };
@@ -249,26 +342,37 @@ const defend = (match, holder, team, userTeam) => {
       setGoal(p, inside({ x: holder.x + goalSide.x * gap, z: holder.z + goalSide.z * gap }), dist(p, holder) > 14, holder);
       continue;
     }
-    const base = shapeTarget(match, p, false);
-    // Kèm người: tìm đối thủ gần vị trí của mình, đứng chắn giữa họ và khung thành.
+    const base = bases.get(p);
+    // Kèm người trong khu vực của mình, không bị kéo khỏi vị trí quá 8 m.
     let mark = null;
-    let markD = 9;
+    let markD = DEFENDERS.has(p.role) ? 11 : 9;
     for (const other of match.players) {
       if (other.team === team || other.sentOff || other === holder || other.role === "GK") continue;
       const d = dist(other, base);
       if (d < markD) { markD = d; mark = other; }
     }
+    if (FORWARDS.has(p.role) && !mark) {
+      // Tiền đạo đứng chặn đường chuyền về cho tiền vệ trụ đối phương, chờ phản công.
+      setGoal(p, base, dist(p, base) > 14);
+      continue;
+    }
     if (mark) {
       const side = norm(goal.x - mark.x, goal.z - mark.z);
-      const point = { x: mark.x + side.x * 1.8, z: mark.z + side.z * 1.8 };
-      setGoal(p, { x: (point.x * 2 + base.x) / 3, z: (point.z * 2 + base.z) / 3 }, dist(p, point) > 9);
+      let point = { x: mark.x + side.x * 1.8, z: mark.z + side.z * 1.8 };
+      // Hậu vệ giữ hàng: chỉ kèm theo chiều ngang, không bỏ hàng lên trên.
+      if (DEFENDERS.has(p.role) && forward(match, team, point.x) > forward(match, team, base.x)) point = { x: base.x, z: point.z };
+      const blend = { x: (point.x * 2 + base.x) / 3, z: (point.z * 2 + base.z) / 3 };
+      const leash = dist(blend, base);
+      const target = leash > 8 ? { x: base.x + ((blend.x - base.x) / leash) * 8, z: base.z + ((blend.z - base.z) / leash) * 8 } : blend;
+      setGoal(p, target, dist(p, target) > 9);
     } else setGoal(p, base, dist(p, base) > 12);
   }
 };
 
 const looseBall = (match, team, userTeam, path) => {
   const players = teamOf(match, team).filter((p) => p.role !== "GK");
-  const controlled = userTeam ? match.players[humanId(match)] : null;
+  const human = humanOf(match, team);
+  const controlled = human ? match.players[human.controlledId] : null;
   const pass = match.ball.pass;
   const timing = players.map((p) => ({ p, hit: interceptPoint(p, path, userTeam ? 0.12 : match.difficulty.reaction) })).filter((r) => r.hit).sort((a, b) => a.hit.need - b.hit.need);
   const attacking = match.ball.lastTeam === team;
@@ -329,21 +433,23 @@ const keeperThink = (match, keeper, path) => {
 export const thinkTeams = (match) => {
   const holder = owner(match);
   const path = holder ? null : predictBall(match);
-  const userTeam = humanTeam(match);
   for (const team of [0, 1]) {
-    const isUserTeam = team === userTeam;
+    const human = humanOf(match, team);
+    const isUserTeam = Boolean(human);
     if (holder) {
       if (holder.team === team) {
-        for (const p of teamOf(match, team)) {
-          if (p === holder || p.role === "GK" || p.id === humanId(match)) continue;
+        const mates = teamOf(match, team).filter((p) => p !== holder && p.role !== "GK" && p.id !== human?.controlledId);
+        // Hai người gần nhất (trừ trung vệ đang đá chốt) làm điểm chuyền.
+        const helpers = mates.filter((p) => p.role !== "CB" || forward(match, team, holder.x) < -25).sort((a, b) => dist(a, holder) - dist(b, holder)).slice(0, 2);
+        for (const p of mates) {
           p.pressing = false;
-          supportCarrier(match, holder, p);
+          supportCarrier(match, holder, p, helpers);
         }
       } else defend(match, holder, team, isUserTeam);
     } else looseBall(match, team, isUserTeam, path);
     keeperThink(match, keeperOf(match, team), path || predictBall(match, 1.5));
   }
-  if (holder && holder.team !== userTeam && holder.role !== "GK" && holder.state === "run") {
+  if (holder && !humanOf(match, holder.team) && holder.role !== "GK" && holder.state === "run") {
     // Bị áp sát thì phản ứng sớm hơn (chuyền thoát pressing).
     const squeezed = nearestOpponent(match, holder).d < 1.9 && match.time - holder.touchStart > 0.2 && match.time - (holder.lastThinkAt || 0) > 0.28;
     if (match.time >= (holder.nextThink || 0) || squeezed) { holder.lastThinkAt = match.time; decideCarrier(match, holder); }
@@ -358,7 +464,7 @@ export const thinkTeams = (match) => {
 /** Thủ môn đang ôm bóng: máy tự phát bóng. Người chơi có 3 giây để tự chuyền. */
 export const keeperWithBall = (match, keeper) => {
   const waited = match.time - (keeper.holdSince || match.time);
-  const userTeam = keeper.team === humanTeam(match);
+  const userTeam = Boolean(humanOf(match, keeper.team));
   if (waited < (userTeam ? 3 : 1.3)) return;
   keeperDistribute(match, keeper);
 };

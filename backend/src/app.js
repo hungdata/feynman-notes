@@ -17,6 +17,8 @@ import { getStorageInfo } from "./storage/index.js";
 import { MindMapInputError } from "./mindmaps/documents.js";
 import { createCampusRuntime } from "./campus/runtime.js";
 import { createCampusRouter } from "./routes/campusRouter.js";
+import { createFootballRooms } from "./football/rooms.js";
+import { createFootballRouter } from "./routes/footballRouter.js";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 export const FRONTEND_DIST = path.resolve(currentDirectory, "../../frontend/dist");
@@ -40,6 +42,16 @@ export const API_INDEX = {
     "POST /api/campus/fishing/cast": "Thả câu trên sàn câu → { castId, biteIn, nibbles, pull, zone }",
     "POST /api/campus/fishing/catch": "Nhận cá và vàng do máy chủ quyết định { castId }",
     "POST /api/campus/fishing/release": "Thu đúng dây câu đang chờ { castId }",
+    "POST /api/football/quick": "Tìm trận bóng đá online 1–1 (vào phòng đang chờ hoặc mở phòng mới)",
+    "POST /api/football/rooms": "Tạo phòng bóng đá { halfMinutes?, public? } → mã phòng",
+    "POST /api/football/rooms/:code/join": "Vào phòng bằng mã",
+    "GET /api/football/rooms/:code": "Trạng thái phòng của người đang ngồi, không đổi chỗ hay nối luồng",
+    "GET /api/football/rooms/:code/events": "Luồng SSE: lobby, start, state (ảnh chụp trận), end",
+    "POST /api/football/rooms/:code/ready": "Sẵn sàng { ready, formation?, kit?, assist?, halfMinutes? }",
+    "POST /api/football/rooms/:code/input": "Phím đang giữ { mx, mz, sprint, shield, contain, press, barge, holdBall, callPress, pushUp }",
+    "POST /api/football/rooms/:code/act": "Lệnh { action, opts: { power?, aim?, taps?, second?, delta? } }",
+    "POST /api/football/rooms/:code/next": "Đá hiệp 2 / đá lại",
+    "POST /api/football/rooms/:code/leave": "Rời phòng",
     "GET /api/mindmaps": "Danh sách mind map đầy đủ (?view=summary để lấy bản tóm tắt)",
     "POST /api/mindmaps": "Tạo mind map: { title, topics[] } hoặc { document }",
     "GET /api/mindmaps/:id": "Một mind map",
@@ -73,15 +85,17 @@ const featureStatus = (env = process.env) => ({
   googleLogin: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.AUTH_SESSION_SECRET),
   guestLogin: Boolean(env.AUTH_SESSION_SECRET),
   campusOnline: Boolean(env.AUTH_SESSION_SECRET),
+  footballOnline: Boolean(env.AUTH_SESSION_SECRET),
   aiTeacher: describeAi(env).configured,
   aiModel: describeAi(env).model,
   courseGeneration: describeAi(env).provider === "openai",
   webSearch: Boolean(env.BRAVE_SEARCH_API_KEY),
 });
 
-export const createApp = ({ env = process.env, campusRuntime } = {}) => {
+export const createApp = ({ env = process.env, campusRuntime, footballRooms } = {}) => {
   const app = express();
   app.locals.campus = campusRuntime || createCampusRuntime();
+  app.locals.football = footballRooms || createFootballRooms();
   const isProduction = env.NODE_ENV === "production";
   const allowedOrigins = String(env.ALLOWED_ORIGINS || "").split(",").map((origin) => origin.trim()).filter(Boolean);
 
@@ -114,6 +128,7 @@ export const createApp = ({ env = process.env, campusRuntime } = {}) => {
   });
   app.use("/api/auth", authRouter);
   app.use("/api/campus", createCampusRouter(app.locals.campus));
+  app.use("/api/football", createFootballRouter(app.locals.football));
   app.use("/api/mindmaps", mindMapRouter);
   app.use("/api/assets", assetRouter);
   app.use("/api/ai", aiRouter);
