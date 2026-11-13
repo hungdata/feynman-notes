@@ -1,0 +1,68 @@
+/* ==========================================================================
+   Feynman Hoops: bóng rổ 5 người. Dùng chung khung HUD và menu của trang bóng đá (lớp `fb-`),
+   ở đây chỉ thêm phần riêng của bóng rổ (lớp `bb-`): nền menu sàn gỗ, đồng hồ 24 giây, thanh ném rổ.
+   ========================================================================== */
+
+.bb-menu {
+  background:
+    radial-gradient(1100px 480px at 50% -10%, rgb(242 107 29 / 38%), transparent 62%),
+    repeating-linear-gradient(90deg, #b9783e 0 46px, #c4844a 46px 92px, #b0723b 92px 138px);
+}
+.bb-shell { background: #0f1424; }
+
+/* Đồng hồ 24 giây ngay cạnh đồng hồ trận. */
+.bb-scoreboard .bb-shot-clock {
+  min-width: 46px; justify-content: center;
+  color: #ff9f1c; font-size: 18px; font-weight: 800;
+  background: rgb(0 0 0 / 35%); border-left: 1px solid var(--fb-line);
+}
+.bb-scoreboard .bb-shot-clock.is-low { color: #ff4b4b; animation: bb-blink 0.8s steps(2) infinite; }
+.bb-scoreboard .fb-team.has-ball::after { content: ""; position: absolute; right: 4px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; background: #ff8a2a; box-shadow: 0 0 6px #ff8a2a; }
+.bb-scoreboard .fb-team { padding-right: 16px !important; }
+@keyframes bb-blink { 50% { opacity: 0.45; } }
+
+/* Thanh ném rổ: đầy dần khi giữ D; vạch xanh là lúc nhả đẹp nhất. */
+.bb-meter {
+  position: absolute; left: 0; top: 0; width: 14px; height: 74px;
+  border-radius: 8px; background: rgb(10 14 32 / 78%); border: 2px solid rgb(255 255 255 / 70%);
+  opacity: 0; pointer-events: none; transition: opacity 0.12s;
+}
+.bb-meter span { position: absolute; left: 2px; right: 2px; bottom: 2px; height: 0; border-radius: 5px; background: linear-gradient(0deg, #ffd23f, #ff9f1c); }
+.bb-meter i { position: absolute; left: -5px; right: -5px; height: 4px; margin-bottom: -2px; border-radius: 2px; background: #2bd47d; box-shadow: 0 0 6px #2bd47d; }
+.bb-meter[data-state="hot"] span, .bb-meter[data-state="perfect"] span { background: linear-gradient(0deg, #2bd47d, #9dffbf); }
+.bb-meter em {
+  position: absolute; left: 22px; top: 22px; white-space: nowrap;
+  font-style: normal; font-weight: 700; font-size: 14px; color: #fff; text-shadow: 0 1px 3px rgb(0 0 0 / 70%);
+}
+.bb-meter[data-state="perfect"] em { color: #2bd47d; }
+.bb-meter[data-state="off"] em { color: #ffd23f; }
+
+/* Cầu thủ nổi bật trong bảng số liệu. */
+.bb-leaders { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 0; padding: 0; }
+.bb-leaders li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 8px 10px; border-radius: 10px; background: rgb(255 255 255 / 6%); font-size: 14px; font-weight: 600; }
+.bb-leaders li b { color: var(--fb-gold); }
+.bb-leaders li span { flex-basis: 100%; color: var(--fb-ink-2); font-size: 12px; font-weight: 500; }
+.bb-leaders li.is-away { text-align: right; justify-content: flex-end; }
+
+.bb-shell .fb-touch.is-A { background: rgb(242 107 29 / 85%); }
+.bb-shell .fb-touch.is-W { background: rgb(107 63 212 / 80%); }
+
+.bb-scoreboard .bb-q { display: none; }
+/* Màn hình hẹp: gọn bảng tỉ số để không đè lên các nút góc phải. */
+@media (max-width: 820px) {
+  .bb-scoreboard > * { padding: 0 8px; }
+  .bb-scoreboard small { display: none; }
+  .bb-scoreboard .bb-q { display: flex; color: var(--fb-ink-2); font-size: 12px; font-weight: 700; padding-right: 0; }
+  .bb-scoreboard .fb-team { max-width: 96px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: block; line-height: 40px; }
+}
+@media (max-width: 640px) {
+  .bb-scoreboard { left: 8px; top: 8px; }
+  .bb-scoreboard > * { height: 34px; }
+  .bb-scoreboard .fb-team { max-width: 64px; font-size: 12px; line-height: 34px; }
+  .bb-scoreboard strong { font-size: 18px; }
+  .bb-scoreboard .bb-shot-clock { min-width: 34px; font-size: 15px; }
+  .bb-leaders { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bb-scoreboard .bb-shot-clock.is-low { animation: none; }
+}

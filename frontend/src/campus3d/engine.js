@@ -4,7 +4,7 @@
  * and listens for "you are at a door".
  */
 import * as THREE from "three";
-import { BENCHES, BOUNDS, BUILDINGS, COURT, DECK, DOOR_WEIGHTS, EDGES, ENTER_RANGE, FENCE, FLAG, GATE, LAKE, LAMPS, NEIGHBOURS, NODES, OUTDOOR_CLASS, PATHS, PIER, PITCH, PLAYER_RADIUS, PLAZA, ROAD, SKIES, SPAWN, STALL, TREES, buildColliders, doorOf, onDeck } from "./world.js";
+import { BENCHES, BOUNDS, BUILDINGS, COURT, DECK, DOOR_WEIGHTS, EDGES, ENTER_RANGE, FENCE, FLAG, GATE, LAKE, LAMPS, NEIGHBOURS, NODES, OUTDOOR_CLASS, PATHS, PIER, PITCH, PLAYER_RADIUS, PLAZA, ROAD, SKIES, SPAWN, STALL, TREES, buildColliders, doorOf, fieldAt, onDeck } from "./world.js";
 import { angleDelta, headingOf, moveWithCollisions, nearestDoor, reconcilePosition, segmentHitsBox, steer, turnToward } from "./movement.js";
 import { HOOP_HEIGHT, buildGraph, createBasketball, createFootball, createStudent, stepBasketball, stepFootball, stepStudent } from "./npc.js";
 import { PLAYER_LOOK, canvasTexture, characterLook, createKit, poseStudent, seatStudent, studentLook } from "./builders.js";
@@ -41,7 +41,7 @@ const glowTexture = (inner, outer = "rgba(255,255,255,0)") => canvasTexture(128,
  * options.start     { x, z, heading } - where to stand (defaults to the gate)
  * options.onNear    (building | null) - the door Enter would open
  * options.onMap     ({ x, z, heading, students: [x, z, ...] }) - for the mini map
- * options.onEnvironment ({ atLake, onDeck, nearShop }) - changed outdoor interactions
+ * options.onEnvironment ({ atLake, onDeck, nearShop, field, nearField }) - changed outdoor interactions
  * options.onSound   (name, level) - footsteps, kicks, bounces
  * options.profile   { id, name, gender } - the server-reserved character
  * options.online    { connected, snapshot } - live, shared authoritative state
@@ -426,8 +426,9 @@ export const startWorld = (container, options) => {
     scene.add(figure, tag);
     return { figure, tag, target: state, stride: 0, uniform: `${state.sport}:${state.team}:${state.gender}` };
   };
-  const showScore = (sport, score, spec) => {
-    const text = `${sport === "football" ? "Bóng đá" : "Bóng rổ"} · ${score.join(" : ")}`;
+  // Biển trên sân: bước vào trong vạch là mở trận đầy đủ (11 người / 5 người).
+  const showScore = (sport, _score, spec) => {
+    const text = sport === "football" ? "Đá 11 người · bước vào sân" : "Bóng rổ 5 người · bước vào sân";
     const old = scoreTags.get(sport);
     if (old?.text === text) return;
     if (old) { scene.remove(old.tag); old.tag.material.map.dispose(); old.tag.material.dispose(); }
@@ -803,6 +804,9 @@ export const startWorld = (container, options) => {
       atLake: !auto && Math.abs(player.x - LAKE.x) <= LAKE.w / 2 + 8 && Math.abs(player.z - LAKE.z) <= LAKE.d / 2 + 10,
       onDeck: !auto && onDeck(player),
       nearShop: !auto && Math.hypot(player.x - STALL.x, player.z - STALL.z) <= 5.5,
+      // Stepping inside the lines of the pitch or the court opens the full match.
+      field: auto ? null : fieldAt(player),
+      nearField: auto ? null : fieldAt(player, -7),
     };
     if (!lastEnvironment || Object.keys(environment).some((key) => environment[key] !== lastEnvironment[key])) {
       lastEnvironment = environment;

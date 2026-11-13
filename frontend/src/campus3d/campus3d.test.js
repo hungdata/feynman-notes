@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BOUNDS, BUILDINGS, COURT, DECK, DOOR_WEIGHTS, EDGES, GATE, LAKE, NODES, PATHS, PIER, PITCH, PLAYER_RADIUS, PLAZA, SPAWN, TREES, buildColliders, doorOf, onDeck } from "./world.js";
+import { BOUNDS, BUILDINGS, COURT, DECK, DOOR_WEIGHTS, EDGES, FIELD_ROUTES, GATE, LAKE, NODES, PATHS, PIER, PITCH, PLAYER_RADIUS, PLAZA, SPAWN, TREES, buildColliders, doorOf, fieldAt, fieldExit, onDeck } from "./world.js";
 import { angleDelta, moveWithCollisions, nearestDoor, reconcilePosition, segmentHitsBox, steer, turnToward } from "./movement.js";
 import { buildGraph, createBasketball, createFootball, createStudent, findPath, pickDestination, stepBasketball, stepFootball, stepStudent } from "./npc.js";
 
@@ -252,4 +252,34 @@ test("reeling: following the fish lands it, doing nothing or only holding loses 
 
   const fresh = createReel(0.5, 0.3);
   assert.ok(fishInZone(fresh) && fresh.progress === REEL.start);
+});
+
+test("stepping onto the pitch or the court picks that sport, and the way back out is outside the lines", () => {
+  assert.equal(fieldAt({ x: PITCH.x, z: PITCH.z }), "football");
+  assert.equal(fieldAt({ x: COURT.x, z: COURT.z }), "basketball");
+  assert.equal(fieldAt(SPAWN), null);
+  // Just on the line does not count yet; a step inside does.
+  assert.equal(fieldAt({ x: PITCH.x + PITCH.w / 2 - 0.5, z: PITCH.z }), null);
+  assert.equal(fieldAt({ x: PITCH.x + PITCH.w / 2 - 1.5, z: PITCH.z }), "football");
+  // The wider area around a field is where the "Vào sân" prompt shows.
+  assert.equal(fieldAt({ x: COURT.x - COURT.w / 2 - 4, z: COURT.z }, -7), "basketball");
+  assert.deepEqual(Object.keys(FIELD_ROUTES).sort(), ["basketball", "football"]);
+  for (const [kind, field] of [["football", PITCH], ["basketball", COURT]]) {
+    for (const point of [
+      { x: field.x + field.w / 2 - 1.5, z: field.z + 2 }, { x: field.x - field.w / 2 + 1.5, z: field.z - 2 },
+      { x: field.x + 3, z: field.z + field.d / 2 - 1.5 }, { x: field.x - 3, z: field.z - field.d / 2 + 1.5 },
+    ]) {
+      assert.equal(fieldAt(point), kind);
+      const exit = fieldExit(kind, point);
+      assert.equal(fieldAt(exit), null, `${kind} exit ${JSON.stringify(exit)} is off the field`);
+      assert.equal(fieldAt(exit, -1.5), kind, "but right next to it");
+      // Facing away from the field: one step forward moves further out.
+      const step = { x: exit.x + Math.sin(exit.heading), z: exit.z + Math.cos(exit.heading) };
+      assert.ok(Math.hypot(step.x - field.x, step.z - field.z) > Math.hypot(exit.x - field.x, exit.z - field.z));
+      // A real spot to stand on (no wall, stand or hoop post).
+      const blocked = colliders.boxes.some((box) => exit.x > box.minX - PLAYER_RADIUS && exit.x < box.maxX + PLAYER_RADIUS && exit.z > box.minZ - PLAYER_RADIUS && exit.z < box.maxZ + PLAYER_RADIUS);
+      const circles = (colliders.circles || []).some((c) => Math.hypot(exit.x - c.x, exit.z - c.z) < c.r + PLAYER_RADIUS);
+      assert.ok(!blocked && !circles, `${kind} exit ${JSON.stringify(exit)} is free to stand on`);
+    }
+  }
 });

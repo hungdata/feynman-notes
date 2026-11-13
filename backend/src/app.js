@@ -19,6 +19,8 @@ import { createCampusRuntime } from "./campus/runtime.js";
 import { createCampusRouter } from "./routes/campusRouter.js";
 import { createFootballRooms } from "./football/rooms.js";
 import { createFootballRouter } from "./routes/footballRouter.js";
+import { createBasketballRooms } from "./basketball/rooms.js";
+import { createBasketballRouter } from "./routes/basketballRouter.js";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 export const FRONTEND_DIST = path.resolve(currentDirectory, "../../frontend/dist");
@@ -52,6 +54,15 @@ export const API_INDEX = {
     "POST /api/football/rooms/:code/act": "Lệnh { action, opts: { power?, aim?, taps?, second?, delta? } }",
     "POST /api/football/rooms/:code/next": "Đá hiệp 2 / đá lại",
     "POST /api/football/rooms/:code/leave": "Rời phòng",
+    "POST /api/basketball/quick": "Tìm trận bóng rổ online 1–1 (vào phòng đang chờ hoặc mở phòng mới)",
+    "POST /api/basketball/rooms": "Tạo phòng bóng rổ { quarterMinutes?, public? } → mã phòng",
+    "POST /api/basketball/rooms/:code/join": "Vào phòng bóng rổ bằng mã",
+    "GET /api/basketball/rooms/:code/events": "Luồng SSE: lobby, start, state (ảnh chụp trận), end",
+    "POST /api/basketball/rooms/:code/ready": "Sẵn sàng { ready, kit?, assist?, quarterMinutes? }",
+    "POST /api/basketball/rooms/:code/input": "Phím đang giữ { mx, mz, sprint, guard }",
+    "POST /api/basketball/rooms/:code/act": "Lệnh { action, opts: { dir?, hold? } }",
+    "POST /api/basketball/rooms/:code/next": "Sang hiệp sau / đấu lại",
+    "POST /api/basketball/rooms/:code/leave": "Rời phòng",
     "GET /api/mindmaps": "Danh sách mind map đầy đủ (?view=summary để lấy bản tóm tắt)",
     "POST /api/mindmaps": "Tạo mind map: { title, topics[] } hoặc { document }",
     "GET /api/mindmaps/:id": "Một mind map",
@@ -86,16 +97,18 @@ const featureStatus = (env = process.env) => ({
   guestLogin: Boolean(env.AUTH_SESSION_SECRET),
   campusOnline: Boolean(env.AUTH_SESSION_SECRET),
   footballOnline: Boolean(env.AUTH_SESSION_SECRET),
+  basketballOnline: Boolean(env.AUTH_SESSION_SECRET),
   aiTeacher: describeAi(env).configured,
   aiModel: describeAi(env).model,
   courseGeneration: describeAi(env).provider === "openai",
   webSearch: Boolean(env.BRAVE_SEARCH_API_KEY),
 });
 
-export const createApp = ({ env = process.env, campusRuntime, footballRooms } = {}) => {
+export const createApp = ({ env = process.env, campusRuntime, footballRooms, basketballRooms } = {}) => {
   const app = express();
   app.locals.campus = campusRuntime || createCampusRuntime();
   app.locals.football = footballRooms || createFootballRooms();
+  app.locals.basketball = basketballRooms || createBasketballRooms();
   const isProduction = env.NODE_ENV === "production";
   const allowedOrigins = String(env.ALLOWED_ORIGINS || "").split(",").map((origin) => origin.trim()).filter(Boolean);
 
@@ -129,6 +142,7 @@ export const createApp = ({ env = process.env, campusRuntime, footballRooms } = 
   app.use("/api/auth", authRouter);
   app.use("/api/campus", createCampusRouter(app.locals.campus));
   app.use("/api/football", createFootballRouter(app.locals.football));
+  app.use("/api/basketball", createBasketballRouter(app.locals.basketball));
   app.use("/api/mindmaps", mindMapRouter);
   app.use("/api/assets", assetRouter);
   app.use("/api/ai", aiRouter);

@@ -251,17 +251,6 @@
 .c3-roster li small { flex: none; margin-left: auto; font-size: 9px; color: #848d9f; }
 .c3-roster p { margin: 8px 0; color: #8e97a4; font-size: 9px; }
 .c3-sports-hud { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); width: min(480px, calc(100vw - 480px)); min-width: 300px; padding: 15px 18px; border: 1px solid #ffffffb3; border-radius: 20px; color: var(--c3-ink); background: var(--c3-card); box-shadow: var(--c3-lift); }
-.c3-play-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
-.c3-play-heading strong { font-size: 13px; font-weight: 600; }
-.c3-play-heading > span { max-width: 164px; color: #808a9a; font-size: 10px; line-height: 1.45; text-align: right; }
-.c3-sport-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.c3-sport-buttons button { display: flex; align-items: center; gap: 9px; min-height: 62px; padding: 9px 12px; border: 1px solid #dbe6d9; border-radius: 13px; background: #edf4e9; text-align: left; color: #37583f; cursor: pointer; }
-.c3-sport-buttons button:nth-child(2) { border-color: #ecdfd5; color: #875b3e; background: #fbf1e8; }
-.c3-sport-buttons button > span { font-size: 25px; }
-.c3-sport-buttons button strong { display: flex; flex-direction: column; gap: 4px; font: 600 12px/1.1 var(--ln-display); }
-.c3-sport-buttons small { font-size: 9px; font-weight: 400; white-space: nowrap; }
-.c3-sport-buttons button:hover { filter: brightness(.98); }
-.c3-prompt { bottom: 178px; }
 .c3-match-top { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
 .c3-match-top > span { font-size: 14px; font-weight: 600; }
 .c3-match-top > span small { display: block; margin-top: 4px; font-size: 9px; color: #8b93a4; font-weight: 400; }
@@ -288,8 +277,6 @@
 .c3-game-error { margin-bottom: 0; font-size: 10px; }
 @media (max-width: 1100px) {
   .c3-sports-hud { width: 420px; min-width: 0; bottom: 160px; }
-  .c3-prompt { bottom: 310px; }
-  .c3-sports-hud .c3-play-heading > span { max-width: none; }
 }
 @media (max-width: 720px) {
   .c3-profile-pill { max-width: 126px; padding: 0 10px; }
@@ -297,7 +284,7 @@
   .c3-sky-pill span { display: none; }
   .c3-online-card { top: 59px; left: 10px; width: 230px; padding: 10px 12px; }
   .c3-sports-hud { bottom: 151px; width: min(440px, calc(100vw - 24px)); padding: 13px 14px; border-radius: 17px; }
-  .c3-prompt { bottom: 305px; max-width: calc(100vw - 30px); }
+  .c3-prompt { max-width: calc(100vw - 30px); }
   .c3-prompt .c3-hint { font-size: 11px; gap: 5px; padding: 8px 12px; }
   .c3-shot-row { gap: 9px; }
   .c3-shoot { font-size: 11px; padding: 0 10px; }
@@ -330,9 +317,6 @@
   .c3-map, .c3-online-card > p, .c3-online-actions, .c3-match-help, .c3-practice-note { display: none; }
   .c3-online-card { top: 60px; width: 215px; padding: 8px 10px; }
   .c3-sports-hud { bottom: 12px; width: min(380px, calc(100vw - 380px)); min-width: 280px; padding: 10px 12px; }
-  .c3-play-heading > span { display: none; }
-  .c3-play-heading { margin-bottom: 7px; }
-  .c3-sport-buttons button { min-height: 48px; padding: 6px 8px; }
   .c3-prompt { display: none; }
   .c3-pad { grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(2, 44px); }
   .c3-team-note { margin: 5px 0 7px; }
@@ -419,14 +403,10 @@
   .has-sport .c3-online-card { width: 170px; }
 }
 
-/* ---------- lối vào trận 11 người kiểu FIFA Online 4 ---------- */
+/* ---------- lối vào trận 11 người và bóng rổ 5 người ---------- */
 
 .c3-place-list a { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 11px; border-radius: 10px; color: var(--c3-ink); font: 600 14px/1.2 var(--ln-display); text-decoration: none; background: #fff7d6; }
 .c3-place-list a:hover { background: #ffefb0; }
-.c3-sport-buttons .c3-fo4-tile { grid-column: 1 / -1; display: flex; align-items: center; gap: 9px; min-height: 54px; padding: 9px 12px; border-radius: 13px; color: #fff; background: linear-gradient(120deg, #0f1f4d, #1f5fd1); text-decoration: none; box-shadow: 0 6px 16px rgb(16 22 56 / 22%); }
-.c3-sport-buttons .c3-fo4-tile > span { font-size: 25px; }
-.c3-sport-buttons .c3-fo4-tile strong { display: flex; flex-direction: column; gap: 4px; font: 700 13px/1.1 var(--ln-display); }
-.c3-sport-buttons .c3-fo4-tile small { color: #ffd23f; font-size: 10px; font-weight: 500; }
 .c3-fo4-link { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 2px; padding: 8px 12px; border-radius: 10px; color: #fff; background: linear-gradient(120deg, #0f1f4d, #1f5fd1); font: 600 13px/1.2 var(--ln-display); text-decoration: none; }
 .c3-fo4-link span { color: #ffd23f; }
-.c3-fo4-link:focus-visible, .c3-fo4-tile:focus-visible, .c3-place-list a:focus-visible { outline: 3px solid var(--c3-yellow); outline-offset: 2px; }
+.c3-fo4-link:focus-visible, .c3-place-list a:focus-visible { outline: 3px solid var(--c3-yellow); outline-offset: 2px; }

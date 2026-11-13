@@ -61,6 +61,7 @@ const start = async () => {
     console.log(`\n  Đang tắt server (${signal})…`);
     app.locals.campus.close();
     app.locals.football.close();
+    app.locals.basketball.close();
     server.close();
     try { await getStore().flush(); } catch { /* storage may be unavailable */ }
     process.exit(0);

@@ -70,8 +70,6 @@
 .c3-gold svg { width: 17px; height: 17px; }
 .c3-fishing-hud { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); width: min(390px, calc(100vw - 32px)); display: grid; justify-items: center; gap: 10px; }
 .c3-fishing-hud .c3-hint { margin: 0; text-align: center; }
-.c3-lake-directions { display: flex; gap: 6px; margin: 10px 0 0; color: var(--c3-ink-2); font-size: 11px; line-height: 1.6; }
-.c3-lake-directions svg { flex: none; margin-top: 2px; }
 .c3-fishing-controls { display: flex; gap: 8px; align-items: center; }
 .c3-fish-button { touch-action: none; user-select: none; animation: none; }
 .c3-fish-button.is-hot { background: #ffb129; outline: 3px solid #fff; }

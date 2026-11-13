@@ -9,7 +9,7 @@ import "../styles/learn.css";
 import "../styles/campus3d.css";
 import "../styles/fishing.css";
 import { timeOfDay } from "../campus/scene";
-import { BOUNDS, BUILDINGS, COURT, DECK, LAKE, NEIGHBOURS, PATHS, PIER, PITCH, PLAZA, SPAWN, doorOf } from "../campus3d/world";
+import { BOUNDS, BUILDINGS, COURT, DECK, FIELD_ROUTES, LAKE, NEIGHBOURS, PATHS, PIER, PITCH, PLAZA, SPAWN, doorOf, fieldAt, fieldExit } from "../campus3d/world";
 import { SoundToggle } from "../learn/LearnChrome";
 import { playSound } from "../learn/sound";
 import CharacterLobby from "../campus3d/CharacterLobby";
@@ -168,6 +168,7 @@ const PadKey = ({ name, label, icon: Icon, onHold }) => (
 /* ---------- page ---------- */
 
 const SPORT_NAMES = { football: "Bóng đá", basketball: "Bóng rổ" };
+const FIELD_PROMPTS = { football: "Vào sân · Đá 11 người", basketball: "Vào sân · Bóng rổ 5 người" };
 const basketPower = (player) => player ? idealBasketPower(player) : 0.7;
 const isTyping = (target) => target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
 const FISHING_LABELS = { idle: "Thả câu", cast: "Đang thả câu…", wait: "Chờ cá cắn…", nibble: "Cá đang rỉa mồi…", bite: "Giật!", reel: "Giữ để kéo", landing: "Đang nhận cá…", caught: "Thả câu tiếp" };
@@ -186,6 +187,9 @@ const Campus3DPage = () => {
   const stuckRef = useRef(0);
   const chargeStartRef = useRef(null);
   const autoJoinRef = useRef(false);
+  // Walking onto the pitch or the court: last field under the player, and the field nearby.
+  const fieldRef = useRef({ last: undefined, near: null });
+  const enterFieldRef = useRef(null);
   const [profile, setProfile] = useState(null);
   const [editing, setEditing] = useState(false);
   const [sky, setSky] = useState(() => timeOfDay());
@@ -199,7 +203,7 @@ const Campus3DPage = () => {
   const [actionBusy, setActionBusy] = useState(false);
   const [charge, setCharge] = useState(null);
   const [copied, setCopied] = useState(false);
-  const [environment, setEnvironment] = useState({ atLake: false, onDeck: false, nearShop: false });
+  const [environment, setEnvironment] = useState({ atLake: false, onDeck: false, nearShop: false, field: null, nearField: null });
   const [purse, setPurse] = useState(null);
   const [shopOpen, setShopOpen] = useState(false);
   const { onlineRef, snapshot, connection, error, action, reconnect, syncPosition } = useCampusOnline(profile, worldRef, Boolean(profile) && !editing);
@@ -252,6 +256,25 @@ const Campus3DPage = () => {
     if (!worldRef.current?.enter(building.id, () => window.setTimeout(leave, 180))) leave();
   }, [navigate]);
 
+  /** Step onto the pitch or the court: the full 11-a-side or 5-a-side match opens. */
+  const enterField = useCallback((kind) => {
+    const route = FIELD_ROUTES[kind];
+    if (!route || leavingRef.current) return;
+    const at = worldRef.current?.where();
+    // Coming back later puts you just outside the lines, facing away, so you are not pulled straight back in.
+    if (at) savePlace({ ...(fieldAt(at) ? fieldExit(kind, at) : { x: at.x, z: at.z, heading: at.heading }), yaw: at.yaw });
+    leavingRef.current = true;
+    setLeaving(true);
+    playSound("next");
+    window.setTimeout(() => { worldRef.current?.pause(); navigate(route); }, 260);
+    stuckRef.current = window.setTimeout(() => {
+      leavingRef.current = false;
+      setLeaving(false);
+      worldRef.current?.resume();
+    }, 6000);
+  }, [navigate]);
+  useEffect(() => { enterFieldRef.current = enterField; }, [enterField]);
+
   useEffect(() => () => window.clearTimeout(stuckRef.current), []);
 
   useEffect(() => {
@@ -275,7 +298,15 @@ const Campus3DPage = () => {
           start: readPlace() || SPAWN,
           onNear: (building) => { nearRef.current = building; setNear(building); },
           onMap: (value) => mapRef.current?.(value),
-          onEnvironment: setEnvironment,
+          onEnvironment: (value) => {
+            setEnvironment(value);
+            const watch = fieldRef.current;
+            const before = watch.last;
+            watch.last = value.field;
+            watch.near = value.nearField;
+            // Only a real step inside counts: starting the page already on a field does not.
+            if (value.field && before === null && !selfRef.current?.sport) enterFieldRef.current?.(value.field);
+          },
           onSound: playSound,
         });
         worldRef.current = world;
@@ -359,6 +390,7 @@ const Campus3DPage = () => {
       }
       if ((event.key === "Enter" && !onControl) || event.key === "e" || event.key === "E") {
         if (!selfRef.current?.sport && nearRef.current) { event.preventDefault(); go(nearRef.current); }
+        else if (!selfRef.current?.sport && fieldRef.current.near) { event.preventDefault(); enterField(fieldRef.current.near); }
       }
       if (event.key === "Escape") { setPlacesOpen(false); setRosterOpen(false); setShopOpen(false); }
     };
@@ -386,15 +418,16 @@ const Campus3DPage = () => {
       document.removeEventListener("visibilitychange", release);
       release();
     };
-  }, [go, syncInput, profile, editing, status, beginCharge, finishCharge, atLake, fishPress, fishRelease, shopOpen]);
+  }, [go, enterField, syncInput, profile, editing, status, beginCharge, finishCharge, atLake, fishPress, fishRelease, shopOpen]);
 
+  // Old invite links (?sport=football|basketball) now open the full match for that sport.
   useEffect(() => {
-    if (!connected || status !== "ready" || autoJoinRef.current) return;
+    if (status !== "ready" || autoJoinRef.current) return;
     const requested = new URLSearchParams(window.location.search).get("sport");
-    if (!SPORT_NAMES[requested]) return;
+    if (!FIELD_ROUTES[requested]) return;
     autoJoinRef.current = true;
-    void perform({ type: "join", sport: requested });
-  }, [connected, status, perform]);
+    navigate(FIELD_ROUTES[requested], { replace: true });
+  }, [status, navigate]);
 
   const hold = useCallback((name, down) => {
     if (down) heldRef.current.pad.add(name);
@@ -434,9 +467,8 @@ const Campus3DPage = () => {
         <div className="c3-places">
           <button type="button" className="c3-pill" aria-expanded={placesOpen} aria-controls="c3-places" onClick={() => setPlacesOpen((open) => !open)}><MapPin aria-hidden="true" />Đi nhanh tới</button>
           {placesOpen && <ul id="c3-places" className="c3-place-list">
-            <li><Link to="/bong-da" onClick={() => setPlacesOpen(false)}>🏟️ Sân vận động · Đá 11 người kiểu FO4</Link></li>
-            <li><button type="button" disabled={!connected || actionBusy} onClick={() => { setPlacesOpen(false); void perform({ type: "join", sport: "football" }); }}>⚽ Sân bóng đá · Chơi ngay</button></li>
-            <li><button type="button" disabled={!connected || actionBusy} onClick={() => { setPlacesOpen(false); void perform({ type: "join", sport: "basketball" }); }}>🏀 Sân bóng rổ · Chơi ngay</button></li>
+            <li><Link to="/bong-da" onClick={() => setPlacesOpen(false)}>⚽ Sân bóng đá · Đá 11 người kiểu FO4</Link></li>
+            <li><Link to="/bong-ro" onClick={() => setPlacesOpen(false)}>🏀 Sân bóng rổ · Bóng rổ 5 người</Link></li>
             {BUILDINGS.map((building) => <li key={building.id}><button type="button" onClick={() => { setPlacesOpen(false); go(building); }}><span className="c3-dot" style={{ background: building.roof }} aria-hidden="true" />{building.name}</button></li>)}
           </ul>}
         </div>
@@ -461,11 +493,11 @@ const Campus3DPage = () => {
       {status === "failed" && <div className="c3-failed" role="alert"><h1>Máy này chưa bật được đồ họa 3D</h1><p>Trình duyệt không tạo được khung vẽ WebGL. Bạn vẫn vào các trường được từ sân trường thường.</p><Link className="c3-enter" to="/">Về sân trường</Link></div>}
       {status === "ready" && <>
         <div className="c3-prompt" aria-live="polite">
-          {!sport && !environment.atLake && (near ? <button type="button" className="c3-enter" onClick={() => go(near)}><DoorOpen aria-hidden="true" />Vào {near.name}<kbd>Enter</kbd></button> : !moved && <p className="c3-hint"><span className="c3-for-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> để đi · Shift để chạy</span><span className="c3-for-touch">Giữ mũi tên để đi</span><span>Kéo màn hình để xoay góc nhìn</span></p>)}
+          {!sport && !environment.atLake && (near ? <button type="button" className="c3-enter" onClick={() => go(near)}><DoorOpen aria-hidden="true" />Vào {near.name}<kbd>Enter</kbd></button> : environment.nearField ? <button type="button" className="c3-enter" onClick={() => enterField(environment.nearField)}><span aria-hidden="true">{environment.nearField === "football" ? "⚽" : "🏀"}</span>{FIELD_PROMPTS[environment.nearField]}<kbd>Enter</kbd></button> : !moved && <p className="c3-hint"><span className="c3-for-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> để đi · Shift để chạy</span><span className="c3-for-touch">Giữ mũi tên để đi</span><span>Kéo màn hình để xoay góc nhìn</span></p>)}
         </div>
-        {(!environment.atLake || sport) && (
-        <section className="c3-sports-hud" aria-label={sport ? `Trận ${SPORT_NAMES[sport].toLowerCase()}` : "Chọn môn thể thao"}>
-          {sport ? <>
+        {sport && (
+        <section className="c3-sports-hud" aria-label={`Trận ${SPORT_NAMES[sport].toLowerCase()}`}>
+          <>
             <div className="c3-match-banner"><div className="c3-match-top"><span>{sport === "football" ? "⚽" : "🏀"} {SPORT_NAMES[sport]}<small>{activePlayers.length} người chơi thật</small></span><div className="c3-match-score" aria-label={`Đội đỏ ${game?.score?.[0] || 0}, đội xanh ${game?.score?.[1] || 0}`}><span className="is-red">Đỏ</span><strong>{game?.score?.[0] || 0}<em>:</em>{game?.score?.[1] || 0}</strong><span className="is-blue">Xanh</span></div><button type="button" className="c3-exit-match" disabled={!connected || actionBusy} onClick={() => { void perform({ type: "leave" }); }} aria-label="Rời sân chơi"><X size={18} /></button></div>
             <p className="c3-team-note">Bạn ở <strong className={self?.team === 1 ? "is-blue" : "is-red"}>đội {self?.team === 1 ? "Xanh" : "Đỏ"}</strong> · Tấn công {self?.team === 1 ? "về phía Tây ←" : "về phía Đông →"}</p></div>
             <details className="c3-match-instructions"><summary>Cách chơi <span>?</span></summary><div><p className="c3-match-help">{sport === "football" ? "Đến gần bóng, quay về hướng muốn sút. Đi gần bóng để rê bóng." : snapshot?.basketball?.holder === snapshot?.selfId ? "Bạn đang giữ bóng. Quay mặt về rổ đối phương rồi ném!" : "Đến gần bóng để nhặt; đến gần đối thủ rồi bấm để cướp bóng."}</p>
@@ -473,10 +505,9 @@ const Campus3DPage = () => {
             <p className="c3-practice-note">Giữ rồi thả Space để chỉnh lực. Bấm nút để dùng lực gợi ý. Bóng rổ: vạch xanh là lực tới rổ.</p>{sport === "football" && <Link className="c3-fo4-link" to="/bong-da">🏟️ Đá 11 người kiểu FIFA Online 4 <span>→</span></Link>}</div></details>
             <div className={`c3-control-dock is-${sport}`}><div className="c3-shot-row">{sport === "basketball" && <button type="button" className="c3-aim" onClick={() => worldRef.current?.aimAt(hoopFor(self.team))} title="Quay nhân vật về phía rổ đối phương">🎯<span>Ngắm rổ</span></button>}<button className="c3-shoot" type="button" disabled={!connected || actionBusy} onClick={() => shoot()}><span aria-hidden="true">{sport === "football" ? "⚽" : "🏀"}</span><span>{sport === "football" ? "Sút bóng" : snapshot?.basketball?.holder === snapshot?.selfId ? "Ném bóng" : "Cướp / nhặt"}</span><kbd>Space</kbd></button><div className="c3-shot-detail"><span>{charge !== null ? `Lực ${Math.round(charge * 100)}% · thả Space để ${sport === "football" ? "sút" : "ném"}` : "Giữ rồi thả Space để chỉnh lực"}</span><div className="c3-power-track" role="meter" aria-label="Lực đánh bóng" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((charge ?? (sport === "basketball" ? idealPower : 0.78)) * 100)}><i style={{ width: `${(charge ?? (sport === "basketball" ? idealPower : 0.78)) * 100}%` }} />{sport === "basketball" && <b style={{ left: `${idealPower * 100}%` }} title="Lực gợi ý để tới rổ" />}</div>{sport === "basketball" && <small>Vạch xanh: lực gợi ý · Bấm nút để dùng lực gợi ý.</small>}</div></div>
             </div>
-          </> : <><div className="c3-play-heading"><strong>Ra sân chơi một chút?</strong><span>Chung bóng, chung tỉ số với mọi người.</span></div><div className="c3-sport-buttons"><button type="button" disabled={!connected || actionBusy} onClick={() => { void perform({ type: "join", sport: "football" }); }}><span>⚽</span><strong>Bóng đá<small>Vào sân và sút ngay</small></strong></button><button type="button" disabled={!connected || actionBusy} onClick={() => { void perform({ type: "join", sport: "basketball" }); }}><span>🏀</span><strong>Bóng rổ<small>Rê bóng và ném rổ</small></strong></button><Link className="c3-fo4-tile" to="/bong-da"><span>🏟️</span><strong>Đá 11 người<small>Kiểu FIFA Online 4</small></strong></Link></div></>}
+          </>
           {error && <p className="c3-game-error" role="alert">{error}</p>}
           {!connected && <p className="c3-game-error" role="status">Kết nối đang gián đoạn. Trận đấu sẽ tiếp tục khi vào lại máy chủ.</p>}
-          {!sport && <p className="c3-lake-directions"><Fish size={15} aria-hidden="true" />Hồ câu ngoài cổng trường: đi qua đường làng, rẽ phải tới cầu gỗ. Nhà của bạn ở bên trái.</p>}
         </section>
         )}
         {environment.atLake && !sport && (

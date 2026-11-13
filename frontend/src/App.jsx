@@ -19,6 +19,7 @@ const PoolPage = lazy(() => import("./pages/PoolPage"));
 const Campus3DPage = lazy(() => import("./pages/Campus3DPage"));
 const HomePage = lazy(() => import("./pages/HomePage"));
 const FootballPage = lazy(() => import("./pages/FootballPage"));
+const BasketballPage = lazy(() => import("./pages/BasketballPage"));
 import AuthProvider from "./auth/AuthProvider";
 import { useAuth } from "./auth/useAuth";
 
@@ -41,6 +42,7 @@ function App() {
             <Route path="/learn" element={<ProtectedRoute><LearnPage /></ProtectedRoute>} />
             <Route path="/san-truong-3d" element={<Suspense fallback={null}><Campus3DPage /></Suspense>} />
             <Route path="/bong-da" element={<Suspense fallback={null}><FootballPage /></Suspense>} />
+            <Route path="/bong-ro" element={<Suspense fallback={null}><BasketballPage /></Suspense>} />
             <Route path="/nha" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
             <Route path="/giai-tri" element={<ProtectedRoute><ArcadePage /></ProtectedRoute>} />
             <Route path="/giai-tri/bida" element={<ProtectedRoute><PoolPage /></ProtectedRoute>} />

@@ -44,6 +44,35 @@ export const STALL = { x: 30.5, z: 122.6 };                    // the tackle sta
 export const NEIGHBOURS = [
   [-50, 106, 13, 6.5, 9, "#e3f1df", "#3f8f6b"], [22, 106, 13, 7, 9, "#dfe9f7", "#4b6cb7"], [44, 106, 12, 6, 9, "#f3d9e6", "#8a5fbf"], [-58, 138, 12, 6.5, 10, "#f7edc9", "#b3562f"],
 ];
+/** Where each sports field leads: stepping inside its lines opens the full match. */
+export const FIELD_ROUTES = { football: "/bong-da", basketball: "/bong-ro" };
+const FIELDS = [["football", PITCH], ["basketball", COURT]];
+/**
+ * Which field a point stands on, or null. `margin` > 0 keeps the trigger a little inside
+ * the lines; a negative margin asks for the area around a field (walking up to it).
+ */
+export const fieldAt = (point, margin = 1) => {
+  for (const [kind, field] of FIELDS) {
+    if (Math.abs(point.x - field.x) <= field.w / 2 - margin && Math.abs(point.z - field.z) <= field.d / 2 - margin) return kind;
+  }
+  return null;
+};
+/** A spot just outside a field, pushed away from its centre, facing out (for coming back later). */
+export const fieldExit = (kind, point, push = 1.2) => {
+  const field = kind === "football" ? PITCH : COURT;
+  const dx = point.x - field.x;
+  const dz = point.z - field.z;
+  // Leave through the side the player is nearest to.
+  const gapX = field.w / 2 - Math.abs(dx);
+  const gapZ = field.d / 2 - Math.abs(dz);
+  if (gapX < gapZ) {
+    const side = Math.sign(dx) || 1;
+    return { x: field.x + side * (field.w / 2 + push), z: point.z, heading: side > 0 ? Math.PI / 2 : -Math.PI / 2 };
+  }
+  const side = Math.sign(dz) || 1;
+  return { x: point.x, z: field.z + side * (field.d / 2 + push), heading: side > 0 ? 0 : Math.PI };
+};
+
 /** True on the fishing deck. */
 export const onDeck = (point) => Math.abs(point.x - DECK.x) <= DECK.w / 2 && Math.abs(point.z - DECK.z) <= DECK.d / 2 + 0.3;
 
